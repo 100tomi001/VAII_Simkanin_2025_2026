@@ -1,0 +1,290 @@
+:root {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background-color: #020617;
+  color: #e5e7eb;
+}
+
+body {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.app {
+  min-height: 100vh;
+  background: radial-gradient(circle at top, #1f2933 0, #020308 55%);
+  color: #e5e7eb;
+}
+
+.app-main {
+  max-width: 1200px;
+  margin: 80px auto 40px;
+  padding: 0 16px;
+}
+
+/* NAVBAR */
+
+.navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: #05070c;
+  border-bottom: 1px solid #1f2937;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  z-index: 10;
+}
+
+.navbar-left {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.logo {
+  font-weight: 700;
+  font-size: 1.2rem;
+  letter-spacing: 0.04em;
+}
+
+.nav-links {
+  display: flex;
+  gap: 16px;
+  font-size: 0.95rem;
+}
+
+.nav-links a {
+  padding: 6px 10px;
+  border-radius: 999px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.nav-links a:hover {
+  background: #111827;
+}
+
+.navbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.nav-user {
+  font-weight: 500;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #111827;
+}
+
+/* Buttons */
+
+.btn-primary,
+.btn-secondary,
+.btn-link {
+  font-size: 0.9rem;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, transform 0.05s;
+}
+
+.btn-primary {
+  background: #4f46e5;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #6366f1;
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  background: #111827;
+  color: #e5e7eb;
+}
+
+.btn-secondary:hover {
+  background: #1f2937;
+}
+
+.btn-link {
+  background: transparent;
+  color: #9ca3af;
+}
+
+.btn-link:hover {
+  color: #e5e7eb;
+}
+
+/* Stránky */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.page-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.page-title {
+  font-size: 1.6rem;
+  font-weight: 600;
+}
+
+.page-subtitle {
+  font-size: 0.95rem;
+  color: #9ca3af;
+}
+
+.card {
+  background: rgba(15, 23, 42, 0.9);
+  border-radius: 16px;
+  border: 1px solid #1f2937;
+  padding: 16px 18px;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.55);
+}
+
+/* Formy */
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+input {
+  background: #020617;
+  border: 1px solid #1f2937;
+  border-radius: 10px;
+  padding: 8px 10px;
+  color: #e5e7eb;
+}
+
+input:focus {
+  outline: 1px solid #4f46e5;
+}
+
+/* Forum topics */
+
+.topics-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.topic-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #020617;
+  border: 1px solid #1f2937;
+  cursor: pointer;
+}
+
+.topic-title {
+  font-weight: 500;
+}
+
+.topic-meta {
+  font-size: 0.8rem;
+  color: #9ca3af;
+}
+
+/* Profile */
+
+.profile-info-row {
+  display: flex;
+  gap: 16px;
+  font-size: 0.95rem;
+}
+textarea {
+  font-family: inherit;
+}
+.tag-pill {
+  border-radius: 999px;
+  border: 1px solid #1f2937;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  color: #e5e7eb;
+  cursor: pointer;
+  background: #020617;
+  transition: background 0.15s, border-color 0.15s, transform 0.05s;
+}
+
+.tag-pill:hover {
+  transform: translateY(-1px);
+}
+.tag-pill.selected {
+  background: #4f46e5;
+  border-color: #4f46e5;
+}
+.forum-tabs {
+  display: flex;
+  gap: 16px;
+}
+
+.forum-tab {
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.forum-tab-active {
+  color: #e5e7eb;
+  background: #111827;
+  border-radius: 6px;
+}
+.forum-tab:hover {
+  background: #1f2937;
+  border-radius: 6px;
+}
+
+.author-link {
+  position: relative;
+  color: #cbd5f5;
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+
+.author-link::after {
+  content: "";
+  position: absolute;
+  left: -6px;
+  right: -6px;
+  top: -2px;
+  bottom: -2px;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  border-radius: 999px;
+  opacity: 0;
+  transform: scale(0.96);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: -1;
+}
+
+.author-link:hover {
+  color: #93c5fd;
+}
+
+.author-link:hover::after {
+  opacity: 1;
+  transform: scale(1);
+}

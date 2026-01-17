@@ -1,0 +1,203 @@
+import express from "express";
+import { authRequired, blockBanned } from "../middleware/auth.js";
+import { query } from "../db.js";
+
+const router = express.Router();
+
+router.get("/:topicId", async (req, res) => {
+  const topicId = req.params.topicId;
+
+  try {
+    const result = await query(
+      `
+      SELECT 
+        p.id,
+        p.content,
+        p.is_deleted,
+        p.created_at,
+        p.parent_post_id,
+        u.id AS author_id,
+        u.username AS author_username,
+        u.nickname AS author_nickname,
+        u.avatar_url AS author_avatar_url,
+        u.hide_badges AS author_hide_badges,
+        COALESCE(
+          (SELECT array_agg(ub.badge_id) FROM user_badges ub WHERE ub.user_id = u.id),
+          '{}'
+        ) AS badge_ids,
+        (SELECT COUNT(*) FROM posts p2 WHERE p2.user_id = u.id AND p2.is_deleted = false) AS messages_count
+      FROM posts p
+      JOIN users u ON p.user_id = u.id
+      WHERE p.topic_id = $1
+      ORDER BY p.created_at ASC
+      `,
+      [topicId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("POSTS ERROR (GET /:topicId):", err);
+    res.status(500).json({ message: "Server error loading posts" });
+  }
+});
+
+router.post("/:topicId", authRequired, blockBanned, async (req, res) => {
+  const topicId = req.params.topicId;
+  const { content, parent_post_id = null } = req.body;
+
+  if (!content || !content.trim()) {
+    return res.status(400).json({ message: "Missing content" });
+  }
+
+  try {
+    if (parent_post_id) {
+      const parentCheck = await query(
+        "SELECT id FROM posts WHERE id = $1 AND topic_id = $2",
+        [parent_post_id, topicId]
+      );
+      if (parentCheck.rowCount === 0) {
+        return res.status(400).json({ message: "Invalid parent_post_id" });
+      }
+    }
+
+    const insertRes = await query(
+      `
+      INSERT INTO posts (topic_id, user_id, content, parent_post_id)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id, content, created_at, parent_post_id
+      `,
+      [topicId, req.user.id, content.trim(), parent_post_id]
+    );
+
+    const postRow = insertRes.rows[0];
+
+    const userRes = await query(
+      `SELECT id, username, nickname, avatar_url, hide_badges FROM users WHERE id = $1`,
+      [req.user.id]
+    );
+
+    const u = userRes.rows[0];
+
+    res.status(201).json({
+      id: postRow.id,
+      content: postRow.content,
+      created_at: postRow.created_at,
+      parent_post_id: postRow.parent_post_id,
+      author_id: u.id,
+      author_username: u.username,
+      author_nickname: u.nickname,
+      author_avatar_url: u.avatar_url,
+      author_hide_badges: u.hide_badges,
+      badge_ids: [],
+      messages_count: 0,
+      is_deleted: false,
+    });
+  } catch (err) {
+    console.error("CREATE POST ERROR (POST /:topicId):", err);
+    res.status(500).json({ message: "Server error creating post" });
+  }
+});
+
+router.delete("/:id", authRequired, blockBanned, async (req, res) => {
+  const postId = req.params.id;
+
+  try {
+    const check = await query(
+      `SELECT user_id, is_deleted FROM posts WHERE id = $1`,
+      [postId]
+    );
+
+    if (check.rowCount === 0) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    if (check.rows[0].is_deleted) {
+      return res.json({ message: "Post already deleted" });
+    }
+
+    const ownerId = check.rows[0].user_id;
+    const isAuthor = ownerId === req.user.id;
+    let canDelete = isAuthor;
+
+    if (!canDelete && req.user.role === "admin") {
+      canDelete = true;
+    }
+
+    if (!canDelete && req.user.role === "moderator") {
+      const permRes = await query(
+        "SELECT can_delete_posts FROM moderator_permissions WHERE user_id = $1",
+        [req.user.id]
+      );
+      if (permRes.rows[0]?.can_delete_posts) canDelete = true;
+    }
+
+    if (!canDelete) {
+      return res.status(403).json({ message: "Not allowed to delete this post" });
+    }
+
+    await query(
+      `UPDATE posts
+       SET is_deleted = true, deleted_at = NOW(), deleted_by = $1
+       WHERE id = $2`,
+      [req.user.id, postId]
+    );
+
+    return res.json({ message: "Post deleted" });
+  } catch (err) {
+    console.error("DELETE POST ERROR:", err);
+    res.status(500).json({ message: "Server error deleting post" });
+  }
+});
+
+router.patch("/:id", authRequired, blockBanned, async (req, res) => {
+  const postId = req.params.id;
+  const { content } = req.body;
+
+  if (!content || !content.trim()) {
+    return res.status(400).json({ message: "Content nesmie byt prazdny." });
+  }
+
+  try {
+    const check = await query(
+      `SELECT user_id, is_deleted FROM posts WHERE id = $1`,
+      [postId]
+    );
+
+    if (check.rowCount === 0) {
+      return res.status(404).json({ message: "Post neexistuje." });
+    }
+
+    if (check.rows[0].is_deleted) {
+      return res.status(400).json({ message: "Post je uz zmazany." });
+    }
+
+    if (check.rows[0].user_id !== req.user.id) {
+      return res.status(403).json({ message: "Nemozes upravit tento prispevok." });
+    }
+
+    const updateRes = await query(
+      `
+      UPDATE posts
+      SET content = $1
+      WHERE id = $2
+      RETURNING id, topic_id, user_id, content, created_at
+      `,
+      [content.trim(), postId]
+    );
+
+    const updated = updateRes.rows[0];
+
+    res.json({
+      id: updated.id,
+      topic_id: updated.topic_id,
+      content: updated.content,
+      created_at: updated.created_at,
+      is_deleted: false,
+    });
+  } catch (err) {
+    console.error("UPDATE POST ERROR:", err);
+    res.status(500).json({ message: "Server error updating post" });
+  }
+});
+
+export default router;
