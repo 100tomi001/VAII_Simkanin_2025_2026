@@ -6,8 +6,10 @@ export default function ManageMeta() {
   const { user } = useAuth();
   const [tags, setTags] = useState([]);
   const [badges, setBadges] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [newTag, setNewTag] = useState("");
   const [newBadge, setNewBadge] = useState({ name: "", icon_url: "" });
+  const [newCategory, setNewCategory] = useState({ name: "", description: "", sort_order: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -15,12 +17,17 @@ export default function ManageMeta() {
 
   const load = async () => {
     try {
-      const [t, b] = await Promise.all([api.get("/tags"), api.get("/badges")]);
+      const [t, b, c] = await Promise.all([
+        api.get("/tags"),
+        api.get("/badges"),
+        api.get("/categories"),
+      ]);
       setTags(t.data);
       setBadges(b.data);
+      setCategories(c.data);
     } catch (err) {
       console.error(err);
-      setError("Nepodarilo sa načítať meta dáta.");
+      setError("Nepodarilo sa nacitat meta data.");
     } finally {
       setLoading(false);
     }
@@ -41,22 +48,22 @@ export default function ManageMeta() {
       console.error(err);
       const msg = err.response?.data?.message?.toLowerCase() || "";
       if (msg.includes("exists") || msg.includes("duplicate")) {
-        setError("Tag už existuje.");
+        setError("Tag uz existuje.");
       } else {
-        setError(err.response?.data?.message || "Chyba pri vytváraní tagu.");
+        setError(err.response?.data?.message || "Chyba pri vytvarani tagu.");
       }
     }
   };
 
   const deleteTag = async (id) => {
-    if (!window.confirm("Zmazať tag?")) return;
+    if (!window.confirm("Zmazat tag?")) return;
     try {
       await api.delete(`/tags/${id}`);
       setTags((prev) => prev.filter((t) => t.id !== id));
       setError("");
     } catch (err) {
       console.error(err);
-      setError(err.response?.data?.message || "Chyba pri mazaní tagu.");
+      setError(err.response?.data?.message || "Chyba pri mazani tagu.");
     }
   };
 
@@ -74,22 +81,22 @@ export default function ManageMeta() {
       console.error(err);
       const msg = err.response?.data?.message?.toLowerCase() || "";
       if (msg.includes("exists") || msg.includes("duplicate")) {
-        setError("Badge už existuje.");
+        setError("Badge uz existuje.");
       } else {
-        setError(err.response?.data?.message || "Chyba pri vytváraní badge.");
+        setError(err.response?.data?.message || "Chyba pri vytvarani badge.");
       }
     }
   };
 
   const deleteBadge = async (id) => {
-    if (!window.confirm("Zmazať badge?")) return;
+    if (!window.confirm("Zmazat badge?")) return;
     try {
       await api.delete(`/badges/${id}`);
       setBadges((prev) => prev.filter((b) => b.id !== id));
       setError("");
     } catch (err) {
       console.error(err);
-      setError(err.response?.data?.message || "Chyba pri mazaní badge.");
+      setError(err.response?.data?.message || "Chyba pri mazani badge.");
     }
   };
 
@@ -101,10 +108,39 @@ export default function ManageMeta() {
     setNewBadge((p) => ({ ...p, icon_url: url }));
   };
 
+  const addCategory = async () => {
+    if (!newCategory.name.trim()) return;
+    try {
+      const res = await api.post("/categories", {
+        name: newCategory.name.trim(),
+        description: newCategory.description,
+        sort_order: Number(newCategory.sort_order) || 0,
+      });
+      setCategories((prev) => [...prev, res.data]);
+      setNewCategory({ name: "", description: "", sort_order: 0 });
+      setError("");
+    } catch (err) {
+      console.error(err);
+      setError(err.response?.data?.message || "Chyba pri vytvarani kategorie.");
+    }
+  };
+
+  const deleteCategory = async (id) => {
+    if (!window.confirm("Zmazat kategoriu?")) return;
+    try {
+      await api.delete(`/categories/${id}`);
+      setCategories((prev) => prev.filter((c) => c.id !== id));
+      setError("");
+    } catch (err) {
+      console.error(err);
+      setError(err.response?.data?.message || "Chyba pri mazani kategorie.");
+    }
+  };
+
   if (!isEditor) {
     return (
       <div className="page">
-        <div className="card">Len pre adminov/moderátorov.</div>
+        <div className="card">Len pre adminov/moderatorov.</div>
       </div>
     );
   }
@@ -112,26 +148,26 @@ export default function ManageMeta() {
   return (
     <div className="page">
       <div className="page-header">
-        <h1 className="page-title">Správa tagov a badge</h1>
-        <p className="page-subtitle">Pridávaj a maž tagy, badge s ikonou.</p>
+        <h1 className="page-title">Sprava tagov, badge a kategorii</h1>
+        <p className="page-subtitle">Pridavaj a maz meta data.</p>
       </div>
 
       {error && <p style={{ color: "salmon" }}>{error}</p>}
 
       {loading ? (
-        <p>Načítavam...</p>
+        <p>Nacitavam...</p>
       ) : (
-        <div className="card" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div className="card" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
           <div>
             <h3>Tagy</h3>
             <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
               <input
                 value={newTag}
                 onChange={(e) => setNewTag(e.target.value)}
-                placeholder="Názov tagu"
+                placeholder="Nazov tagu"
               />
               <button className="btn-primary" type="button" onClick={addTag}>
-                Pridať
+                Pridat
               </button>
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -148,7 +184,7 @@ export default function ManageMeta() {
                   </button>
                 </div>
               ))}
-              {tags.length === 0 && <p className="topic-meta">Žiadne tagy.</p>}
+              {tags.length === 0 && <p className="topic-meta">Ziadne tagy.</p>}
             </div>
           </div>
 
@@ -163,12 +199,12 @@ export default function ManageMeta() {
               }}
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleBadgeDrop}
-              title="Drag & drop ikonku alebo vlož URL"
+              title="Drag & drop ikonku alebo vloz URL"
             >
               <input
                 value={newBadge.name}
                 onChange={(e) => setNewBadge((p) => ({ ...p, name: e.target.value }))}
-                placeholder="Názov badge"
+                placeholder="Nazov badge"
               />
               <input
                 value={newBadge.icon_url}
@@ -181,7 +217,7 @@ export default function ManageMeta() {
                 </div>
               )}
               <button className="btn-primary" type="button" style={{ marginTop: 8 }} onClick={addBadge}>
-                Pridať badge
+                Pridat badge
               </button>
             </div>
 
@@ -190,19 +226,20 @@ export default function ManageMeta() {
                 <div
                   key={b.id}
                   style={{
-                    border: "1px solid #1f2937",
+                    border: "1px solid var(--card-border)",
                     borderRadius: 10,
                     padding: "6px 8px",
                     display: "flex",
                     alignItems: "center",
                     gap: 8,
+                    background: "var(--chip-bg)",
                   }}
                   title={b.name}
                 >
                   {b.icon_url ? (
                     <img src={b.icon_url} alt={b.name} style={{ width: 24, height: 24, borderRadius: 6 }} />
                   ) : (
-                    <span style={{ width: 24, height: 24, borderRadius: 6, background: "#111827" }} />
+                    <span style={{ width: 24, height: 24, borderRadius: 6, background: "var(--chip-bg)" }} />
                   )}
                   <span>{b.name}</span>
                   <button
@@ -215,7 +252,49 @@ export default function ManageMeta() {
                   </button>
                 </div>
               ))}
-              {badges.length === 0 && <p className="topic-meta">Žiadne badge.</p>}
+              {badges.length === 0 && <p className="topic-meta">Ziadne badge.</p>}
+            </div>
+          </div>
+
+          <div>
+            <h3>Kategorie (hry)</h3>
+            <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+              <input
+                value={newCategory.name}
+                onChange={(e) => setNewCategory((p) => ({ ...p, name: e.target.value }))}
+                placeholder="Nazov kategorie"
+              />
+              <input
+                value={newCategory.description}
+                onChange={(e) => setNewCategory((p) => ({ ...p, description: e.target.value }))}
+                placeholder="Popis"
+              />
+              <input
+                value={newCategory.sort_order}
+                onChange={(e) => setNewCategory((p) => ({ ...p, sort_order: e.target.value }))}
+                placeholder="Order"
+                style={{ width: 90 }}
+              />
+              <button className="btn-primary" type="button" onClick={addCategory}>
+                Pridat
+              </button>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {categories.map((c) => (
+                <div key={c.id} className="tag-pill" style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span>{c.name}</span>
+                  <button
+                    type="button"
+                    className="btn-link"
+                    style={{ padding: 0 }}
+                    onClick={() => deleteCategory(c.id)}
+                  >
+                    x
+                  </button>
+                </div>
+              ))}
+              {categories.length === 0 && <p className="topic-meta">Ziadne kategorie.</p>}
             </div>
           </div>
         </div>

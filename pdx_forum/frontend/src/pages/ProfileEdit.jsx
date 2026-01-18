@@ -4,7 +4,12 @@ import { useAuth } from "../context/AuthContext";
 
 export default function ProfileEdit() {
   const { user } = useAuth();
-  const [form, setForm] = useState({ nickname: "", avatar_url: "", hide_badges: false });
+  const [form, setForm] = useState({
+    nickname: "",
+    avatar_url: "",
+    hide_badges: false,
+    about: "",
+  });
   const [passwords, setPasswords] = useState({ currentPassword: "", newPassword: "" });
   const [badges, setBadges] = useState([]);
   const [myBadges, setMyBadges] = useState([]);
@@ -18,6 +23,7 @@ export default function ProfileEdit() {
           nickname: me.data.nickname || me.data.username,
           avatar_url: me.data.avatar_url || "",
           hide_badges: !!me.data.hide_badges,
+          about: me.data.about || "",
         });
         const b = await api.get("/badges");
         setBadges(b.data);
@@ -36,11 +42,12 @@ export default function ProfileEdit() {
         nickname: form.nickname,
         avatar_url: form.avatar_url,
         hide_badges: form.hide_badges,
+        about: form.about,
       });
-      setMessage("Profil uložený.");
+      setMessage("Profil ulozeny.");
     } catch (err) {
       console.error(err);
-      setMessage("Chyba pri ukladaní profilu.");
+      setMessage("Chyba pri ukladani profilu.");
     }
   };
 
@@ -48,7 +55,7 @@ export default function ProfileEdit() {
     setMessage("");
     try {
       await api.post("/profile/change-password", passwords);
-      setMessage("Heslo zmenené.");
+      setMessage("Heslo zmenene.");
       setPasswords({ currentPassword: "", newPassword: "" });
     } catch (err) {
       console.error(err);
@@ -84,7 +91,7 @@ export default function ProfileEdit() {
   if (!user) {
     return (
       <div className="page">
-        <div className="card">Musíš byť prihlásený.</div>
+        <div className="card">Musis byt prihlaseny.</div>
       </div>
     );
   }
@@ -92,18 +99,18 @@ export default function ProfileEdit() {
   return (
     <div className="page" style={{ maxWidth: 960, margin: "0 auto" }}>
       <div className="card" style={{ borderRadius: 16, padding: 20 }}>
-        <h2>Upraviť profil</h2>
+        <h2>Upravit profil</h2>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 12 }}>
           <div>
             <label className="topic-meta">Username</label>
-            <div style={{ background: "#0b1220", padding: 10, borderRadius: 10 }}>{user.username}</div>
+            <div style={{ background: "var(--chip-bg)", padding: 10, borderRadius: 10 }}>{user.username}</div>
           </div>
           <div>
             <label className="topic-meta">Nickname</label>
             <input
               value={form.nickname}
               onChange={(e) => setForm((p) => ({ ...p, nickname: e.target.value }))}
-              placeholder="Zobrazované meno"
+              placeholder="Zobrazovane meno"
             />
           </div>
           <div>
@@ -115,20 +122,29 @@ export default function ProfileEdit() {
             />
           </div>
           <div>
-            <label className="topic-meta">Náhľad avataru</label>
-            <div style={{
-              width: 100, height: 100, borderRadius: 12, background: "#111827",
-              border: "1px solid #1f2937", display: "flex", alignItems: "center", justifyContent: "center",
-              overflow: "hidden"
-            }}
+            <label className="topic-meta">Nahlad avataru</label>
+            <div
+              style={{
+                width: 100,
+                height: 100,
+                borderRadius: 12,
+                background: "var(--chip-bg)",
+                border: "1px solid var(--chip-border)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                overflow: "hidden",
+              }}
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleAvatarDrop}
-              title="Drag & drop obrázok alebo vlož URL vyššie"
+              title="Drag & drop obrazok alebo vloz URL vyssie"
             >
               {form.avatar_url ? (
                 <img src={form.avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
               ) : (
-                <span style={{ color: "#9ca3af", fontSize: 28 }}>{form.nickname?.[0] || user.username?.[0]}</span>
+                <span style={{ color: "#9ca3af", fontSize: 28 }}>
+                  {form.nickname?.[0] || user.username?.[0]}
+                </span>
               )}
             </div>
           </div>
@@ -140,30 +156,40 @@ export default function ProfileEdit() {
             checked={form.hide_badges}
             onChange={(e) => setForm((p) => ({ ...p, hide_badges: e.target.checked }))}
           />
-          Skryť badges na profile a v komentároch
+          Skryt badges na profile a v komentaroch
         </label>
 
+        <div style={{ marginTop: 12 }}>
+          <label className="topic-meta">About</label>
+          <textarea
+            rows={4}
+            value={form.about}
+            onChange={(e) => setForm((p) => ({ ...p, about: e.target.value }))}
+            placeholder="Kratky popis o tebe"
+          />
+        </div>
+
         <button className="btn-primary" style={{ marginTop: 12 }} onClick={saveProfile}>
-          Uložiť profil
+          Ulozit profil
         </button>
 
         <h3 style={{ marginTop: 20 }}>Zmena hesla</h3>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <input
             type="password"
-            placeholder="Aktuálne heslo"
+            placeholder="Aktualne heslo"
             value={passwords.currentPassword}
             onChange={(e) => setPasswords((p) => ({ ...p, currentPassword: e.target.value }))}
           />
           <input
             type="password"
-            placeholder="Nové heslo"
+            placeholder="Nove heslo"
             value={passwords.newPassword}
             onChange={(e) => setPasswords((p) => ({ ...p, newPassword: e.target.value }))}
           />
         </div>
         <button className="btn-secondary" style={{ marginTop: 8 }} onClick={changePassword}>
-          Zmeniť heslo
+          Zmenit heslo
         </button>
 
         <h3 style={{ marginTop: 20 }}>Badges</h3>
@@ -177,14 +203,15 @@ export default function ProfileEdit() {
                 onClick={() => toggleBadge(b.id)}
                 className="tag-pill"
                 style={{
-                  background: active ? "#4f46e5" : "#020617",
-                  borderColor: active ? "#6366f1" : "#1f2937",
+                  background: active ? "var(--accent)" : "var(--chip-bg)",
+                  borderColor: active ? "var(--accent)" : "var(--chip-border)",
+                  color: active ? "#fff" : "var(--text)",
                   display: "flex",
                   alignItems: "center",
                   gap: 6,
                 }}
               >
-                {b.icon_url && <img src={b.icon_url} alt="" style={{ width: 16, height: 16 }} />}
+                {b.icon_url && <img src={b.icon_url} alt={b.name} style={{ width: 16, height: 16 }} />}
                 {b.name}
               </button>
             );

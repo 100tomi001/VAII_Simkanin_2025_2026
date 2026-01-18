@@ -10,6 +10,13 @@ export default function Admin() {
   const [permDraft, setPermDraft] = useState({});
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("mods"); // "mods" | "bans"
+  const PERMS = [
+    { key: "can_manage_tags", label: "Tagy" },
+    { key: "can_delete_posts", label: "Mazanie" },
+    { key: "can_ban_users", label: "Bany" },
+    { key: "can_edit_wiki", label: "Wiki" },
+    { key: "can_manage_reactions", label: "Reakcie" },
+  ];
 
   const isAdmin = user?.role === "admin";
 
@@ -24,6 +31,8 @@ export default function Admin() {
           can_manage_tags: !!u.can_manage_tags,
           can_delete_posts: !!u.can_delete_posts,
           can_ban_users: !!u.can_ban_users,
+          can_edit_wiki: !!u.can_edit_wiki,
+          can_manage_reactions: !!u.can_manage_reactions,
         };
       });
       setPermDraft(draft);
@@ -63,14 +72,13 @@ export default function Admin() {
   };
 
   const savePerms = async (userId) => {
-    const ok = window.confirm("Ulozit prava moderatora?");
-    if (!ok) return;
-
     const p = permDraft[userId] || {};
     await api.patch(`/admin/users/${userId}/permissions`, {
       can_manage_tags: !!p.can_manage_tags,
       can_delete_posts: !!p.can_delete_posts,
       can_ban_users: !!p.can_ban_users,
+      can_edit_wiki: !!p.can_edit_wiki,
+      can_manage_reactions: !!p.can_manage_reactions,
     });
     load();
   };
@@ -134,55 +142,55 @@ export default function Admin() {
           moderators.length === 0 ? (
             <p className="topic-meta">Ziadni moderatori.</p>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {moderators.map((u) => (
-                <div
-                  key={u.id}
-                  style={{
-                    border: "1px solid #1f2937",
-                    borderRadius: 12,
-                    padding: 12,
-                    background: "#0b1220",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                    <div>
-                      <div style={{ fontWeight: 600 }}>
-                        {u.username} (id {u.id})
-                      </div>
-                      <div className="topic-meta">
-                        {u.email} | role: {u.role} | banned: {u.is_banned ? "yes" : "no"}
-                      </div>
-                    </div>
-
-                    <select
-                      value={u.role}
-                      onChange={(e) => updateRole(u.id, e.target.value)}
-                      style={{ background: "#020617", color: "#e5e7eb" }}
-                    >
-                      <option value="user">user</option>
-                      <option value="moderator">moderator</option>
-                      <option value="admin">admin</option>
-                    </select>
-                  </div>
-
-                  <div style={{ display: "flex", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
-                    {["can_manage_tags", "can_delete_posts", "can_ban_users"].map((field) => (
-                      <label key={field}>
-                        <input
-                          type="checkbox"
-                          checked={!!permDraft[u.id]?.[field]}
-                          onChange={() => togglePerm(u.id, field)}
-                        />
-                        {" "}{field}
-                      </label>
+            <div style={{ overflowX: "auto" }}>
+              <table className="mod-table">
+                <thead>
+                  <tr>
+                    <th>Moderator</th>
+                    {PERMS.map((p) => (
+                      <th key={p.key}>{p.label}</th>
                     ))}
-                    <button className="btn-secondary" onClick={() => savePerms(u.id)}>
-                      Ulozit prava
-                    </button>
-                  </div>
-                </div>
-              ))}
+                    <th>Akcie</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {moderators.map((u) => (
+                    <tr key={u.id}>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{u.username}</div>
+                        <div className="topic-meta">
+                          {u.email} | id {u.id}
+                        </div>
+                      </td>
+                      {PERMS.map((p) => (
+                        <td key={p.key}>
+                          <input
+                            type="checkbox"
+                            checked={!!permDraft[u.id]?.[p.key]}
+                            onChange={() => togglePerm(u.id, p.key)}
+                          />
+                        </td>
+                      ))}
+                      <td>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <button className="btn-secondary" onClick={() => savePerms(u.id)}>
+                            Ulozit
+                          </button>
+                          <select
+                            value={u.role}
+                            onChange={(e) => updateRole(u.id, e.target.value)}
+                            style={{ background: "var(--input-bg)", color: "var(--text)" }}
+                          >
+                            <option value="user">user</option>
+                            <option value="moderator">moderator</option>
+                            <option value="admin">admin</option>
+                          </select>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )
         ) : bannedUsers.length === 0 ? (
@@ -193,10 +201,10 @@ export default function Admin() {
               <div
                 key={u.id}
                 style={{
-                  border: "1px solid #1f2937",
+                  border: "1px solid var(--card-border)",
                   borderRadius: 12,
                   padding: 12,
-                  background: "#0b1220",
+                  background: "var(--topic-bg)",
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
@@ -212,7 +220,7 @@ export default function Admin() {
                   <select
                     value={u.role}
                     onChange={(e) => updateRole(u.id, e.target.value)}
-                    style={{ background: "#020617", color: "#e5e7eb" }}
+                    style={{ background: "var(--input-bg)", color: "var(--text)" }}
                   >
                     <option value="user">user</option>
                     <option value="moderator">moderator</option>

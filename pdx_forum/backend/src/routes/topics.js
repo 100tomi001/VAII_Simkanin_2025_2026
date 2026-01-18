@@ -5,13 +5,26 @@ import { authRequired, blockBanned, requirePermission } from "../middleware/auth
 const router = express.Router();
 
 router.get("/", async (req, res) => {
+  const { category } = req.query;
   try {
+    const params = [];
+    let where = "";
+    if (category) {
+      params.push(category);
+      where = `WHERE c.slug = $${params.length}`;
+    }
+
     const result = await query(
       `
       SELECT 
         t.id,
         t.title,
         t.created_at,
+        t.is_sticky,
+        t.is_locked,
+        c.id AS category_id,
+        c.name AS category_name,
+        c.slug AS category_slug,
         u.id AS author_id,
         u.username AS author,
         COUNT(p.id) AS replies,
@@ -23,12 +36,15 @@ router.get("/", async (req, res) => {
         ) AS tags
       FROM topics t
       JOIN users u ON u.id = t.user_id
+      LEFT JOIN forum_categories c ON c.id = t.category_id
       LEFT JOIN posts p ON p.topic_id = t.id
       LEFT JOIN topic_tags tt ON tt.topic_id = t.id
       LEFT JOIN tags tg ON tg.id = tt.tag_id
-      GROUP BY t.id, t.title, t.created_at, u.id, u.username
-      ORDER BY last_activity DESC;
-      `
+      ${where}
+      GROUP BY t.id, t.title, t.created_at, t.is_sticky, t.is_locked, c.id, c.name, c.slug, u.id, u.username
+      ORDER BY t.is_sticky DESC, last_activity DESC;
+      `,
+      params
     );
 
     res.json(result.rows);
@@ -48,6 +64,11 @@ router.get("/:id", async (req, res) => {
         t.id,
         t.title,
         t.created_at,
+        t.is_sticky,
+        t.is_locked,
+        c.id AS category_id,
+        c.name AS category_name,
+        c.slug AS category_slug,
         u.id AS author_id,
         u.username AS author,
         COALESCE(
@@ -57,10 +78,11 @@ router.get("/:id", async (req, res) => {
         ) AS tags
       FROM topics t
       JOIN users u ON u.id = t.user_id
+      LEFT JOIN forum_categories c ON c.id = t.category_id
       LEFT JOIN topic_tags tt ON tt.topic_id = t.id
       LEFT JOIN tags tg ON tg.id = tt.tag_id
       WHERE t.id = $1
-      GROUP BY t.id, t.title, t.created_at, u.id, u.username
+      GROUP BY t.id, t.title, t.created_at, t.is_sticky, t.is_locked, c.id, c.name, c.slug, u.id, u.username
       `,
       [id]
     );
@@ -77,18 +99,26 @@ router.get("/:id", async (req, res) => {
 });
 
 router.post("/", authRequired, blockBanned, async (req, res) => {
-  const { title, content, tagIds = [] } = req.body;
+  const { title, content, tagIds = [], category_id } = req.body;
 
-  if (!title || !content) {
-    return res.status(400).json({ message: "Missing title or content" });
+  if (!title || !content || !category_id) {
+    return res.status(400).json({ message: "Missing title/content/category" });
   }
 
   try {
+    const catCheck = await query("SELECT id FROM forum_categories WHERE id = $1", [category_id]);
+    if (catCheck.rowCount === 0) {
+      return res.status(400).json({ message: "Invalid category" });
+    }
+
+    const userRes = await query("SELECT username, nickname FROM users WHERE id = $1", [req.user.id]);
+    const authorName = userRes.rows[0]?.nickname || userRes.rows[0]?.username || "User";
+
     const topicRes = await query(
-      `INSERT INTO topics (user_id, title)
-       VALUES ($1, $2)
+      `INSERT INTO topics (user_id, title, category_id)
+       VALUES ($1, $2, $3)
        RETURNING id`,
-      [req.user.id, title]
+      [req.user.id, title, category_id]
     );
 
     const topicId = topicRes.rows[0].id;
@@ -107,6 +137,27 @@ router.post("/", authRequired, blockBanned, async (req, res) => {
         `,
         [topicId, tagIds]
       );
+    }
+
+    try {
+      await query(
+        `
+        INSERT INTO notifications (user_id, type, payload)
+        SELECT uf.follower_id,
+               'followed_user_topic',
+               jsonb_build_object(
+                 'topicId', $1,
+                 'topicTitle', $2,
+                 'authorId', $3,
+                 'authorNickname', $4
+               )
+        FROM user_follows uf
+        WHERE uf.followed_id = $3 AND uf.follower_id <> $3
+        `,
+        [topicId, title, req.user.id, authorName]
+      );
+    } catch (notifErr) {
+      console.error("Failed to create new topic notification:", notifErr);
     }
 
     return res.status(201).json({ id: topicId, message: "Topic created" });
@@ -149,6 +200,34 @@ router.patch("/:id/tags", authRequired, blockBanned, requirePermission("can_mana
   } catch (err) {
     console.error("UPDATE TOPIC TAGS ERROR:", err);
     res.status(500).json({ message: "Server error updating tags" });
+  }
+});
+
+// PATCH /api/topics/:id/moderation - sticky/lock/category (admin alebo moderator s pravom)
+router.patch("/:id/moderation", authRequired, blockBanned, requirePermission("can_manage_tags"), async (req, res) => {
+  const topicId = req.params.id;
+  const { is_sticky, is_locked, category_id } = req.body;
+  try {
+    if (category_id) {
+      const catCheck = await query("SELECT id FROM forum_categories WHERE id = $1", [category_id]);
+      if (catCheck.rowCount === 0) {
+        return res.status(400).json({ message: "Invalid category" });
+      }
+    }
+    const r = await query(
+      `UPDATE topics
+       SET is_sticky = COALESCE($1, is_sticky),
+           is_locked = COALESCE($2, is_locked),
+           category_id = COALESCE($3, category_id)
+       WHERE id = $4
+       RETURNING id, is_sticky, is_locked, category_id`,
+      [is_sticky, is_locked, category_id, topicId]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ message: "Topic not found" });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error("TOPIC MODERATION ERROR:", err);
+    res.status(500).json({ message: "Server error updating topic" });
   }
 });
 

@@ -12,11 +12,13 @@ router.get("/permissions/me", authRequired, async (req, res) => {
         can_manage_tags: true,
         can_delete_posts: true,
         can_ban_users: true,
+        can_edit_wiki: true,
+        can_manage_reactions: true,
       });
     }
 
     const permRes = await query(
-      "SELECT can_manage_tags, can_delete_posts, can_ban_users FROM moderator_permissions WHERE user_id = $1",
+      "SELECT can_manage_tags, can_delete_posts, can_ban_users, can_edit_wiki, can_manage_reactions FROM moderator_permissions WHERE user_id = $1",
       [req.user.id]
     );
 
@@ -24,6 +26,8 @@ router.get("/permissions/me", authRequired, async (req, res) => {
       can_manage_tags: false,
       can_delete_posts: false,
       can_ban_users: false,
+      can_edit_wiki: false,
+      can_manage_reactions: false,
     };
 
     res.json({ role: req.user.role, ...perms });

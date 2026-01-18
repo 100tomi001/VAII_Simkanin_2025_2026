@@ -7,7 +7,9 @@ import Register from "../pages/Register";
 import Wiki from "../pages/Wiki";
 import WikiArticle from "../pages/WikiArticle";
 import WikiEditor from "../pages/WikiEditor";
+import WikiRecent from "../pages/WikiRecent";
 import ManageMeta from "../pages/ManageMeta";
+import ManageReactions from "../pages/ManageReactions";
 import NotificationsPage from "../pages/NotificationsPage";
 import MessagesPage from "../pages/MessagesPage";
 import NewTopic from "../pages/NewTopic";
@@ -32,10 +34,12 @@ export default function AppRouter() {
           <Route path="/profile/:id" element={<ProfileView />} />
           <Route path="/settings/profile" element={<ProfileEdit />} />
           <Route path="/wiki" element={<Wiki />} />
+          <Route path="/wiki/recent" element={<WikiRecent />} />
           <Route path="/wiki/:slug" element={<WikiArticle />} />
           <Route path="/wiki/edit/:id" element={<WikiEditor />} />
           <Route path="/wiki/new" element={<WikiEditor />} />
           <Route path="/manage/meta" element={<ManageMeta />} />
+          <Route path="/manage/reactions" element={<ManageReactions />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/messages/:userId" element={<MessagesPage />} />
         </Routes>

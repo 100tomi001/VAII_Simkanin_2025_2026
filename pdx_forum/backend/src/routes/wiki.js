@@ -1,9 +1,82 @@
 import express from "express";
+import jwt from "jsonwebtoken";
 import { query } from "../db.js";
-import { authRequired, blockBanned } from "../middleware/auth.js";
+import { authRequired, blockBanned, requirePermission } from "../middleware/auth.js";
 
 const router = express.Router();
-const canEdit = (user) => user?.role === "admin" || user?.role === "moderator";
+const tryGetUser = (req) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return null;
+  const token = authHeader.split(" ")[1];
+  try {
+    return jwt.verify(token, process.env.JWT_SECRET);
+  } catch (err) {
+    return null;
+  }
+};
+const canEditWiki = async (user) => {
+  if (!user) return false;
+  if (user.role === "admin") return true;
+  if (user.role !== "moderator") return false;
+  const r = await query(
+    "SELECT can_edit_wiki FROM moderator_permissions WHERE user_id = $1",
+    [user.id]
+  );
+  return r.rows[0]?.can_edit_wiki === true;
+};
+
+const normalizeContent = (content) => {
+  if (content === undefined) return undefined;
+  if (content === null) return null;
+  if (Array.isArray(content)) return content;
+  if (typeof content === "string") {
+    try {
+      const parsed = JSON.parse(content);
+      return parsed;
+    } catch (err) {
+      return "__invalid__";
+    }
+  }
+  if (typeof content === "object") return content;
+  return "__invalid__";
+};
+
+const toJsonbParam = (value) => {
+  if (value === undefined) return undefined;
+  return JSON.stringify(value);
+};
+
+const slugify = (value) => {
+  if (!value) return "";
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+};
+
+const isSlugTaken = async (slug, excludeId) => {
+  const params = [slug];
+  let sql = "SELECT 1 FROM wiki_articles WHERE slug=$1";
+  if (excludeId) {
+    params.push(excludeId);
+    sql += " AND id<>$2";
+  }
+  const r = await query(sql, params);
+  return r.rowCount > 0;
+};
+
+const suggestSlug = async (baseSlug, excludeId) => {
+  let candidate = baseSlug;
+  let suffix = 2;
+  while (await isSlugTaken(candidate, excludeId)) {
+    candidate = `${baseSlug}-${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+};
 
 const selectArticle = `
   SELECT
@@ -51,12 +124,87 @@ router.get("/", async (req, res) => {
   }
 });
 
+// categories list
+router.get("/categories/list", async (_req, res) => {
+  try {
+    const r = await query(
+      "SELECT id, name, slug, description FROM wiki_categories ORDER BY name ASC"
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error("WIKI CATEGORIES ERROR:", err);
+    res.status(500).json({ message: "Server error loading categories" });
+  }
+});
+
+// recent changes
+router.get("/recent/changes", async (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 15, 100);
+  try {
+    const r = await query(
+      `
+      SELECT
+        h.article_id,
+        a.title,
+        a.slug,
+        h.created_at,
+        u.username AS changed_by
+      FROM wiki_article_history h
+      JOIN wiki_articles a ON a.id = h.article_id
+      LEFT JOIN users u ON u.id = h.changed_by
+      ORDER BY h.created_at DESC
+      LIMIT $1
+      `,
+      [limit]
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error("WIKI RECENT ERROR:", err);
+    res.status(500).json({ message: "Server error loading recent changes" });
+  }
+});
+
+// drafts list (editor only)
+router.get("/drafts", authRequired, requirePermission("can_edit_wiki"), async (req, res) => {
+  try {
+    const r = await query(
+      `${selectArticle}
+       WHERE a.status = 'draft'
+       ORDER BY a.updated_at DESC`
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error("WIKI DRAFTS ERROR:", err);
+    res.status(500).json({ message: "Server error loading drafts" });
+  }
+});
+
+// detail by id (editor only)
+router.get("/id/:id", authRequired, requirePermission("can_edit_wiki"), async (req, res) => {
+  try {
+    const r = await query(`${selectArticle} WHERE a.id = $1`, [req.params.id]);
+    if (r.rowCount === 0) return res.status(404).json({ message: "Article not found" });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error("WIKI DETAIL BY ID ERROR:", err);
+    res.status(500).json({ message: "Server error loading article" });
+  }
+});
+
 // detail by slug
 router.get("/:slug", async (req, res) => {
   try {
     const r = await query(`${selectArticle} WHERE a.slug = $1`, [req.params.slug]);
     if (r.rowCount === 0) return res.status(404).json({ message: "Article not found" });
-    res.json(r.rows[0]);
+    const article = r.rows[0];
+    if (article.status !== "published") {
+      const user = tryGetUser(req);
+      const canView = await canEditWiki(user);
+      if (!canView) {
+        return res.status(404).json({ message: "Article not found" });
+      }
+    }
+    res.json(article);
   } catch (err) {
     console.error("WIKI DETAIL ERROR:", err);
     res.status(500).json({ message: "Server error loading article" });
@@ -64,17 +212,27 @@ router.get("/:slug", async (req, res) => {
 });
 
 // create
-router.post("/", authRequired, blockBanned, async (req, res) => {
-  if (!canEdit(req.user)) return res.status(403).json({ message: "Not allowed" });
-  const { title, summary, content, cover_image, category_id, status = "draft" } = req.body;
-  const slug = title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "");
+router.post("/", authRequired, blockBanned, requirePermission("can_edit_wiki"), async (req, res) => {
+  const { title, summary, content, cover_image, category_id, status = "draft", slug: slugOverride } = req.body;
+  const baseSlug = slugify(title);
+  const requestedSlug = slugOverride ? slugify(slugOverride) : baseSlug;
   if (!title || !content) return res.status(400).json({ message: "Missing title/content" });
+  if (!requestedSlug) return res.status(400).json({ message: "Invalid title" });
   try {
+    if (await isSlugTaken(requestedSlug)) {
+      const suggested = await suggestSlug(baseSlug);
+      return res.status(409).json({ message: "Slug already exists", suggestedSlug: suggested });
+    }
+    const normalized = normalizeContent(content);
+    if (normalized === "__invalid__") {
+      return res.status(400).json({ message: "Invalid content JSON" });
+    }
+    const contentJson = toJsonbParam(normalized);
     const r = await query(
       `INSERT INTO wiki_articles (title, slug, summary, content, cover_image, category_id, status, created_by, updated_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)
+       VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$8)
        RETURNING *`,
-      [title, slug, summary || "", content, cover_image || null, category_id || null, status, req.user.id]
+      [title, requestedSlug, summary || "", contentJson, cover_image || null, category_id || null, status, req.user.id]
     );
     res.status(201).json(r.rows[0]);
   } catch (err) {
@@ -84,19 +242,20 @@ router.post("/", authRequired, blockBanned, async (req, res) => {
 });
 
 // update
-router.patch("/:id", authRequired, blockBanned, async (req, res) => {
-  if (!canEdit(req.user)) return res.status(403).json({ message: "Not allowed" });
-  const { title, summary, content, cover_image, category_id, status } = req.body;
+router.patch("/:id", authRequired, blockBanned, requirePermission("can_edit_wiki"), async (req, res) => {
+  const { title, summary, content, cover_image, category_id, status, slug: slugOverride } = req.body;
   try {
     // history
     const old = await query("SELECT * FROM wiki_articles WHERE id=$1", [req.params.id]);
     if (old.rowCount === 0) return res.status(404).json({ message: "Article not found" });
+    const oldContent = normalizeContent(old.rows[0].content);
+    const historyJson = toJsonbParam(oldContent === "__invalid__" ? [] : oldContent);
     await query(
       `INSERT INTO wiki_article_history (article_id, content, title, summary, cover_image, category_id, status, changed_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+       VALUES ($1,$2::jsonb,$3,$4,$5,$6,$7,$8)`,
       [
         req.params.id,
-        old.rows[0].content,
+        historyJson,
         old.rows[0].title,
         old.rows[0].summary,
         old.rows[0].cover_image,
@@ -107,16 +266,26 @@ router.patch("/:id", authRequired, blockBanned, async (req, res) => {
     );
 
     // update
-    const slug = title
-      ? title.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "")
-      : old.rows[0].slug;
+    const baseSlug = title ? slugify(title) : old.rows[0].slug;
+    const requestedSlug = slugOverride ? slugify(slugOverride) : baseSlug;
+    if (!requestedSlug) return res.status(400).json({ message: "Invalid title" });
+    if (requestedSlug !== old.rows[0].slug && (await isSlugTaken(requestedSlug, req.params.id))) {
+      const suggested = await suggestSlug(baseSlug, req.params.id);
+      return res.status(409).json({ message: "Slug already exists", suggestedSlug: suggested });
+    }
+    const slug = requestedSlug || old.rows[0].slug;
 
+    const normalized = normalizeContent(content);
+    if (normalized === "__invalid__") {
+      return res.status(400).json({ message: "Invalid content JSON" });
+    }
+    const contentJson = normalized === undefined ? null : toJsonbParam(normalized);
     const r = await query(
       `UPDATE wiki_articles
        SET title=COALESCE($1,title),
            slug=$2,
            summary=COALESCE($3,summary),
-           content=COALESCE($4,content),
+           content=COALESCE($4::jsonb,content),
            cover_image=COALESCE($5,cover_image),
            category_id=COALESCE($6,category_id),
            status=COALESCE($7,status),
@@ -128,7 +297,7 @@ router.patch("/:id", authRequired, blockBanned, async (req, res) => {
         title,
         slug,
         summary,
-        content,
+        contentJson,
         cover_image,
         category_id,
         status,
@@ -144,8 +313,7 @@ router.patch("/:id", authRequired, blockBanned, async (req, res) => {
 });
 
 // delete/archive
-router.delete("/:id", authRequired, blockBanned, async (req, res) => {
-  if (!canEdit(req.user)) return res.status(403).json({ message: "Not allowed" });
+router.delete("/:id", authRequired, blockBanned, requirePermission("can_edit_wiki"), async (req, res) => {
   try {
     await query("UPDATE wiki_articles SET status='archived' WHERE id=$1", [req.params.id]);
     res.json({ message: "Archived" });
@@ -156,8 +324,7 @@ router.delete("/:id", authRequired, blockBanned, async (req, res) => {
 });
 
 // history
-router.get("/:id/history", authRequired, async (req, res) => {
-  if (!canEdit(req.user)) return res.status(403).json({ message: "Not allowed" });
+router.get("/:id/history", authRequired, requirePermission("can_edit_wiki"), async (req, res) => {
   const r = await query(
     `
     SELECT h.*, u.username AS changed_by_name
@@ -172,8 +339,7 @@ router.get("/:id/history", authRequired, async (req, res) => {
 });
 
 // rollback
-router.post("/:id/rollback/:historyId", authRequired, async (req, res) => {
-  if (!canEdit(req.user)) return res.status(403).json({ message: "Not allowed" });
+router.post("/:id/rollback/:historyId", authRequired, requirePermission("can_edit_wiki"), async (req, res) => {
   try {
     const h = await query(
       "SELECT * FROM wiki_article_history WHERE id=$1 AND article_id=$2",
@@ -182,15 +348,17 @@ router.post("/:id/rollback/:historyId", authRequired, async (req, res) => {
     if (h.rowCount === 0) return res.status(404).json({ message: "History not found" });
 
     const row = h.rows[0];
+    const rollbackContent = normalizeContent(row.content);
+    const rollbackJson = toJsonbParam(rollbackContent === "__invalid__" ? [] : rollbackContent);
     await query(
       `UPDATE wiki_articles
-       SET title=$1, summary=$2, content=$3, cover_image=$4,
+       SET title=$1, summary=$2, content=$3::jsonb, cover_image=$4,
            category_id=$5, status=$6, updated_by=$7, updated_at=NOW()
        WHERE id=$8`,
       [
         row.title,
         row.summary,
-        row.content,
+        rollbackJson,
         row.cover_image,
         row.category_id,
         row.status,

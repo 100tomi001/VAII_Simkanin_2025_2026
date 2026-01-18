@@ -5,8 +5,9 @@ export default function Tag({ label, active, onClick }) {
       onClick={onClick}
       className="tag-pill"
       style={{
-        background: active ? "#4f46e5" : "#020617",
-        borderColor: active ? "#6366f1" : "#1f2937",
+        background: active ? "var(--accent)" : "var(--chip-bg)",
+        borderColor: active ? "var(--accent)" : "var(--chip-border)",
+        color: active ? "#fff" : "var(--text)",
       }}
     >
       {label}

@@ -1,15 +1,19 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
 import { useEffect, useRef, useState } from "react";
 import api from "../api/axios";
 
 export default function Navbar() {
   const { user, logout } = useAuth();
+  const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
   const [profileOpen, setProfileOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [notifCount, setNotifCount] = useState(0);
   const [msgCount, setMsgCount] = useState(0);
+  const [canEditWiki, setCanEditWiki] = useState(false);
+  const [canManageReactions, setCanManageReactions] = useState(false);
   const profileRef = useRef(null);
   const adminRef = useRef(null);
 
@@ -36,15 +40,20 @@ export default function Navbar() {
       if (!user) {
         setNotifCount(0);
         setMsgCount(0);
+        setCanEditWiki(false);
+        setCanManageReactions(false);
         return;
       }
       try {
-        const [n, m] = await Promise.all([
+        const [n, m, p] = await Promise.all([
           api.get("/notifications/unread-count"),
-          api.get("/messages/unread/count/mine")
+          api.get("/messages/unread/count/mine"),
+          api.get("/moderation/permissions/me")
         ]);
         setNotifCount(n.data?.count || 0);
         setMsgCount(m.data?.count || 0);
+        setCanEditWiki(user.role === "admin" || !!p.data?.can_edit_wiki);
+        setCanManageReactions(user.role === "admin" || !!p.data?.can_manage_reactions);
       } catch (err) {
         console.error(err);
       }
@@ -78,6 +87,17 @@ export default function Navbar() {
           PDX Forum
         </Link>
 
+        <select
+          className="theme-select"
+          value={theme}
+          onChange={(e) => setTheme(e.target.value)}
+          aria-label="Theme"
+        >
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+
         <nav className="nav-links">
           <Link to="/forum">Fórum</Link>
           <Link to="/wiki">Wiki</Link>
@@ -103,12 +123,11 @@ export default function Navbar() {
               </button>
               {profileOpen && (
                 <div
+                  className="menu-panel"
                   style={{
                     position: "absolute",
                     right: 0,
                     marginTop: 6,
-                    background: "#0b1220",
-                    border: "1px solid #1f2937",
                     borderRadius: 10,
                     minWidth: 160,
                     padding: 8,
@@ -146,12 +165,11 @@ export default function Navbar() {
                 </button>
                 {adminOpen && (
                   <div
+                    className="menu-panel"
                     style={{
                       position: "absolute",
                       right: 0,
                       marginTop: 6,
-                      background: "#0b1220",
-                      border: "1px solid #1f2937",
                       borderRadius: 10,
                       minWidth: 180,
                       padding: 8,
@@ -163,7 +181,12 @@ export default function Navbar() {
                     onClick={(e) => e.stopPropagation()}
                   >
                     <Link to="/manage/meta" className="btn-link">Tagy & Badge</Link>
-                    <Link to="/wiki/new" className="btn-link">Nový článok</Link>
+                    {(user.role === "admin" || canManageReactions) && (
+                      <Link to="/manage/reactions" className="btn-link">Reakcie</Link>
+                    )}
+                     {(user.role === "admin" || canEditWiki) && (
+                      <Link to="/wiki/new" className="btn-link">Novy clanok</Link>
+                    )}
                     {user.role === "admin" && <Link to="/admin" className="btn-link">Admin panel</Link>}
                   </div>
                 )}
@@ -216,3 +239,7 @@ export default function Navbar() {
     </header>
   );
 }
+
+
+
+

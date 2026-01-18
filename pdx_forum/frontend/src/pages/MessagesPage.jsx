@@ -110,8 +110,8 @@ export default function MessagesPage() {
                 justifyContent: "space-between",
                 display: "flex",
                 alignItems: "center",
-                borderColor: String(t.other_id) === String(userId) ? "#6366f1" : undefined,
-                background: String(t.other_id) === String(userId) ? "#111827" : undefined,
+                borderColor: String(t.other_id) === String(userId) ? "var(--accent)" : undefined,
+                background: String(t.other_id) === String(userId) ? "var(--chip-bg)" : undefined,
               }}
               onClick={() => navigate(`/messages/${t.other_id}`)}
             >
@@ -155,7 +155,8 @@ export default function MessagesPage() {
                     key={m.id}
                     style={{
                       alignSelf: m.sender_id === user.id ? "flex-end" : "flex-start",
-                      background: m.sender_id === user.id ? "#1e3a8a" : "#0b1220",
+                      background: m.sender_id === user.id ? "var(--accent)" : "var(--chip-bg)",
+                      color: m.sender_id === user.id ? "#fff" : "var(--text)",
                       padding: "8px 10px",
                       borderRadius: 10,
                       maxWidth: "72%",

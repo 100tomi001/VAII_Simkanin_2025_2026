@@ -12,12 +12,15 @@ export default function NewTopic() {
   const [error, setError] = useState("");
   const [tags, setTags] = useState([]);
   const [selectedTagIds, setSelectedTagIds] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [categoryId, setCategoryId] = useState("");
 
   useEffect(() => {
     const loadTags = async () => {
       try {
-        const res = await api.get("/tags");
-        setTags(res.data);
+        const [t, c] = await Promise.all([api.get("/tags"), api.get("/categories")]);
+        setTags(t.data);
+        setCategories(c.data);
       } catch (err) {
         console.error(err);
       }
@@ -54,8 +57,8 @@ export default function NewTopic() {
     e.preventDefault();
     setError("");
 
-    if (!title.trim() || !content.trim()) {
-      setError("Vypln nazov temy aj obsah prveho prispevku.");
+    if (!title.trim() || !content.trim() || !categoryId) {
+      setError("Vypln nazov, obsah a kategoriu temy.");
       return;
     }
 
@@ -64,6 +67,7 @@ export default function NewTopic() {
         title: title.trim(),
         content: content.trim(),
         tagIds: selectedTagIds,
+        category_id: Number(categoryId),
       });
 
       const newId = res.data.id;
@@ -90,14 +94,27 @@ export default function NewTopic() {
             onChange={(e) => setTitle(e.target.value)}
           />
 
+          <select
+            value={categoryId}
+            onChange={(e) => setCategoryId(e.target.value)}
+            style={{ marginTop: 8 }}
+          >
+            <option value="">Vyber hru/kategoriu</option>
+            {categories.map((cat) => (
+              <option key={cat.id} value={cat.id}>
+                {cat.name}
+              </option>
+            ))}
+          </select>
+
           <textarea
             rows={8}
             placeholder="Uvodny prispevok..."
             value={content}
             onChange={(e) => setContent(e.target.value)}
             style={{
-              background: "#020617",
-              border: "1px solid #1f2937",
+              background: "var(--input-bg)",
+              border: "1px solid var(--input-border)",
               borderRadius: 10,
               padding: "8px 10px",
               color: "#e5e7eb",
@@ -116,11 +133,12 @@ export default function NewTopic() {
                   className="tag-pill"
                   style={{
                     background: selectedTagIds.includes(tag.id)
-                      ? "#4f46e5"
-                      : "#020617",
+                      ? "var(--accent)"
+                      : "var(--chip-bg)",
                     borderColor: selectedTagIds.includes(tag.id)
-                      ? "#6366f1"
-                      : "#1f2937",
+                      ? "var(--accent)"
+                      : "var(--chip-border)",
+                    color: selectedTagIds.includes(tag.id) ? "#fff" : "var(--text)",
                   }}
                 >
                   {tag.name}

@@ -17,7 +17,7 @@ export default function NotificationsPage() {
         setItems(res.data);
       } catch (err) {
         console.error(err);
-        setError("Nepodarilo sa načítať notifikácie.");
+        setError("Failed to load notifications.");
       } finally {
         setLoading(false);
       }
@@ -28,7 +28,7 @@ export default function NotificationsPage() {
   if (!user) {
     return (
       <div className="page">
-        <div className="card">Musíš byť prihlásený.</div>
+        <div className="card">Login required.</div>
       </div>
     );
   }
@@ -42,13 +42,11 @@ export default function NotificationsPage() {
         prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
       );
     }
-    // zníž badge hneď
     window.dispatchEvent(new CustomEvent("notif-read", { detail: { count: 1 } }));
     try {
       await api.post("/notifications/mark-read", { ids: [id] });
     } catch (err) {
       console.error(err);
-      // ak zlyhá, vrátime naspäť a badge opravíme späť
       setItems((prev) => {
         if (prev.find((n) => n.id === id)) return prev;
         return removeAfterClick ? [...prev, notif] : prev.map((n) => (n.id === id ? notif : n));
@@ -58,30 +56,96 @@ export default function NotificationsPage() {
   };
 
   const renderBody = (n) => {
+    const t = n.payload || {};
     if (n.type === "comment_reply") {
-      const t = n.payload || {};
       const targetHref = t.topicId ? `/topic/${t.topicId}#post-${t.postId || t.parentPostId}` : null;
       return (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <div>
-            <strong>{t.authorNickname || "Niekto"}</strong> odpovedal na tvoj komentár
+            <strong>{t.authorNickname || "Someone"}</strong> replied to your comment
             {targetHref && (
               <>
-                {" · "}
-                <Link to={targetHref} style={{ color: "#60a5fa" }}>
-                  otvoriť vlákno
+                {" | "}
+                <Link to={targetHref} style={{ color: "var(--accent)" }}>
+                  open thread
                 </Link>
               </>
             )}
           </div>
           {t.snippet && (
-            <div style={{ fontSize: 13, color: "#cbd5e1" }}>"{t.snippet}"</div>
+            <div style={{ fontSize: 13, color: "var(--text-muted)" }}>"{t.snippet}"</div>
           )}
         </div>
       );
     }
 
-    // fallback pre iné typy
+    if (n.type === "followed_topic_post") {
+      const targetHref = t.topicId ? `/topic/${t.topicId}#post-${t.postId}` : null;
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div>
+            New comment in followed topic{" "}
+            {t.topicTitle && <strong>{t.topicTitle}</strong>}
+            {targetHref && (
+              <>
+                {" | "}
+                <Link to={targetHref} style={{ color: "var(--accent)" }}>
+                  open
+                </Link>
+              </>
+            )}
+          </div>
+          {t.authorNickname && <div className="topic-meta">by {t.authorNickname}</div>}
+          {t.snippet && (
+            <div style={{ fontSize: 13, color: "var(--text-muted)" }}>"{t.snippet}"</div>
+          )}
+        </div>
+      );
+    }
+
+    if (n.type === "followed_user_post") {
+      const targetHref = t.topicId ? `/topic/${t.topicId}#post-${t.postId}` : null;
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div>
+            <strong>{t.authorNickname || "Followed user"}</strong> posted a comment
+            {targetHref && (
+              <>
+                {" | "}
+                <Link to={targetHref} style={{ color: "var(--accent)" }}>
+                  open
+                </Link>
+              </>
+            )}
+          </div>
+          {t.topicTitle && <div className="topic-meta">{t.topicTitle}</div>}
+          {t.snippet && (
+            <div style={{ fontSize: 13, color: "var(--text-muted)" }}>"{t.snippet}"</div>
+          )}
+        </div>
+      );
+    }
+
+    if (n.type === "followed_user_topic") {
+      const targetHref = t.topicId ? `/topic/${t.topicId}` : null;
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div>
+            <strong>{t.authorNickname || "Followed user"}</strong> created a new topic
+            {targetHref && (
+              <>
+                {" | "}
+                <Link to={targetHref} style={{ color: "var(--accent)" }}>
+                  open
+                </Link>
+              </>
+            )}
+          </div>
+          {t.topicTitle && <div className="topic-meta">{t.topicTitle}</div>}
+        </div>
+      );
+    }
+
     return (
       <pre style={{ whiteSpace: "pre-wrap", fontSize: 12 }}>
         {JSON.stringify(n.payload, null, 2)}
@@ -92,14 +156,14 @@ export default function NotificationsPage() {
   return (
     <div className="page">
       <div className="page-header">
-        <h1 className="page-title">Notifikácie</h1>
+        <h1 className="page-title">Notifications</h1>
       </div>
       <div className="card">
         {error && <p style={{ color: "salmon" }}>{error}</p>}
         {loading ? (
-          <p>Načítavam...</p>
+          <p>Loading...</p>
         ) : items.length === 0 ? (
-          <p className="topic-meta">Žiadne notifikácie.</p>
+          <p className="topic-meta">No notifications.</p>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {items.map((n) => (
@@ -108,10 +172,10 @@ export default function NotificationsPage() {
                 role="button"
                 tabIndex={0}
                 style={{
-                  border: n.is_read ? "1px solid #1f2937" : "1px solid #2563eb",
+                  border: n.is_read ? "1px solid var(--card-border)" : "1px solid var(--accent)",
                   borderRadius: 10,
                   padding: 10,
-                  background: n.is_read ? "#0b1220" : "#0f172a",
+                  background: n.is_read ? "var(--chip-bg)" : "var(--accent-soft)",
                   cursor: "pointer",
                   boxShadow: n.is_read ? "none" : "0 0 0 1px rgba(37,99,235,0.25)",
                 }}
@@ -126,7 +190,7 @@ export default function NotificationsPage() {
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, alignItems: "center" }}>
                   <div style={{ fontWeight: 600 }}>{n.type}</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ fontSize: 13, color: "#9ca3af" }}>
+                    <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
                       {new Date(n.created_at).toLocaleString("sk-SK")}
                     </div>
                     <button
@@ -137,7 +201,7 @@ export default function NotificationsPage() {
                         markReadAndRemove(n);
                       }}
                     >
-                      Zmazať
+                      Delete
                     </button>
                   </div>
                 </div>

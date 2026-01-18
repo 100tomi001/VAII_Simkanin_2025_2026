@@ -20,11 +20,27 @@ router.get("/:topicId", async (req, res) => {
         u.username AS author_username,
         u.nickname AS author_nickname,
         u.avatar_url AS author_avatar_url,
+        u.role AS author_role,
+        u.created_at AS author_created_at,
         u.hide_badges AS author_hide_badges,
         COALESCE(
           (SELECT array_agg(ub.badge_id) FROM user_badges ub WHERE ub.user_id = u.id),
           '{}'
         ) AS badge_ids,
+        (
+          COALESCE(
+            (SELECT COUNT(*) FROM post_reactions pr
+             JOIN reactions r ON r.id = pr.reaction_id
+             JOIN posts p3 ON p3.id = pr.post_id
+             WHERE p3.user_id = u.id AND r.key = 'like'), 0
+          ) +
+          COALESCE(
+            (SELECT COUNT(*) FROM topic_reactions tr
+             JOIN reactions r2 ON r2.id = tr.reaction_id
+             JOIN topics t2 ON t2.id = tr.topic_id
+             WHERE t2.user_id = u.id AND r2.key = 'like'), 0
+          )
+        ) AS author_karma,
         (SELECT COUNT(*) FROM posts p2 WHERE p2.user_id = u.id AND p2.is_deleted = false) AS messages_count
       FROM posts p
       JOIN users u ON p.user_id = u.id
@@ -50,6 +66,15 @@ router.post("/:topicId", authRequired, blockBanned, async (req, res) => {
   }
 
   try {
+    const lockRes = await query("SELECT is_locked, title FROM topics WHERE id = $1", [topicId]);
+    if (lockRes.rowCount === 0) {
+      return res.status(404).json({ message: "Topic not found" });
+    }
+    if (lockRes.rows[0].is_locked) {
+      return res.status(403).json({ message: "Topic is locked" });
+    }
+    const topicTitle = lockRes.rows[0].title;
+
     let parentAuthorId = null;
     if (parent_post_id) {
       const parentCheck = await query(
@@ -74,11 +99,32 @@ router.post("/:topicId", authRequired, blockBanned, async (req, res) => {
     const postRow = insertRes.rows[0];
 
     const userRes = await query(
-      `SELECT id, username, nickname, avatar_url, hide_badges FROM users WHERE id = $1`,
+      `SELECT id, username, nickname, avatar_url, hide_badges, role, created_at FROM users WHERE id = $1`,
       [req.user.id]
     );
 
     const u = userRes.rows[0];
+    const karmaRes = await query(
+      `
+      SELECT
+        (
+          COALESCE(
+            (SELECT COUNT(*) FROM post_reactions pr
+             JOIN reactions r ON r.id = pr.reaction_id
+             JOIN posts p2 ON p2.id = pr.post_id
+             WHERE p2.user_id = $1 AND r.key = 'like'), 0
+          ) +
+          COALESCE(
+            (SELECT COUNT(*) FROM topic_reactions tr
+             JOIN reactions r2 ON r2.id = tr.reaction_id
+             JOIN topics t2 ON t2.id = tr.topic_id
+             WHERE t2.user_id = $1 AND r2.key = 'like'), 0
+          )
+        ) AS karma
+      `,
+      [req.user.id]
+    );
+    const authorKarma = Number(karmaRes.rows[0]?.karma || 0);
 
     // Notify parent author when someone replies to their comment (skip self-replies)
     if (parentAuthorId && parentAuthorId !== req.user.id) {
@@ -103,6 +149,68 @@ router.post("/:topicId", authRequired, blockBanned, async (req, res) => {
       }
     }
 
+    // Notify followers of topic
+    try {
+      await query(
+        `
+        INSERT INTO notifications (user_id, type, payload)
+        SELECT tf.user_id,
+               'followed_topic_post',
+               jsonb_build_object(
+                 'topicId', $1,
+                 'topicTitle', $2,
+                 'postId', $3,
+                 'authorId', $4,
+                 'authorNickname', $5,
+                 'snippet', $6
+               )
+        FROM topic_follows tf
+        WHERE tf.topic_id = $1 AND tf.user_id <> $4
+        `,
+        [
+          topicId,
+          topicTitle,
+          postRow.id,
+          u.id,
+          u.nickname || u.username,
+          postRow.content.slice(0, 140),
+        ]
+      );
+    } catch (notifErr) {
+      console.error("Failed to create topic follow notification:", notifErr);
+    }
+
+    // Notify followers of author
+    try {
+      await query(
+        `
+        INSERT INTO notifications (user_id, type, payload)
+        SELECT uf.follower_id,
+               'followed_user_post',
+               jsonb_build_object(
+                 'topicId', $1,
+                 'topicTitle', $2,
+                 'postId', $3,
+                 'authorId', $4,
+                 'authorNickname', $5,
+                 'snippet', $6
+               )
+        FROM user_follows uf
+        WHERE uf.followed_id = $4 AND uf.follower_id <> $4
+        `,
+        [
+          topicId,
+          topicTitle,
+          postRow.id,
+          u.id,
+          u.nickname || u.username,
+          postRow.content.slice(0, 140),
+        ]
+      );
+    } catch (notifErr) {
+      console.error("Failed to create user follow notification:", notifErr);
+    }
+
     res.status(201).json({
       id: postRow.id,
       content: postRow.content,
@@ -112,6 +220,9 @@ router.post("/:topicId", authRequired, blockBanned, async (req, res) => {
       author_username: u.username,
       author_nickname: u.nickname,
       author_avatar_url: u.avatar_url,
+      author_role: u.role,
+      author_created_at: u.created_at,
+      author_karma: authorKarma,
       author_hide_badges: u.hide_badges,
       badge_ids: [],
       messages_count: 0,

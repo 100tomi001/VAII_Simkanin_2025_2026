@@ -3,6 +3,33 @@ import { useEffect, useMemo, useState } from "react";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 
+const isImageIcon = (icon) =>
+  typeof icon === "string" &&
+  (icon.startsWith("http") || icon.startsWith("blob:") || icon.startsWith("data:"));
+
+const mapPostReactions = (rows) => {
+  const map = {};
+  (rows || []).forEach((r) => {
+    if (!map[r.post_id]) map[r.post_id] = {};
+    map[r.post_id][r.reaction_id] = {
+      cnt: Number(r.cnt || 0),
+      users: Array.isArray(r.users) ? r.users : [],
+    };
+  });
+  return map;
+};
+
+const mapTopicReactions = (rows) => {
+  const map = {};
+  (rows || []).forEach((r) => {
+    map[r.reaction_id] = {
+      cnt: Number(r.cnt || 0),
+      users: Array.isArray(r.users) ? r.users : [],
+    };
+  })
+  return map;
+};
+
 export default function TopicDetail() {
   const { id } = useParams();
   const topicId = Number(id);
@@ -26,21 +53,40 @@ export default function TopicDetail() {
   const [modPerms, setModPerms] = useState(null);
   const [tagAudit, setTagAudit] = useState([]);
   const [badges, setBadges] = useState([]);
-  const [expandedReplies, setExpandedReplies] = useState({}); // postId -> bool
+  const [expandedReplies, setExpandedReplies] = useState({});
+
+  const [reactions, setReactions] = useState([]);
+  const [postReactions, setPostReactions] = useState({});
+  const [topicReactions, setTopicReactions] = useState({});
+  const [isTopicFollowed, setIsTopicFollowed] = useState(false);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [topicRes, postsRes, tagsRes, badgesRes] = await Promise.all([
+        const [
+          topicRes,
+          postsRes,
+          tagsRes,
+          badgesRes,
+          reactionsRes,
+          postReactRes,
+          topicReactRes,
+        ] = await Promise.all([
           api.get(`/topics/${topicId}`),
           api.get(`/posts/${topicId}`),
           api.get("/tags"),
           api.get("/badges"),
+          api.get("/reactions"),
+          api.get(`/reactions/posts/summary?topicId=${topicId}`),
+          api.get(`/reactions/topic/${topicId}`),
         ]);
 
         setTopic(topicRes.data);
         setAllTags(tagsRes.data);
         setBadges(badgesRes.data);
+        setReactions(reactionsRes.data);
+        setPostReactions(mapPostReactions(postReactRes.data));
+        setTopicReactions(mapTopicReactions(topicReactRes.data));
 
         const currentTagIds = (topicRes.data.tags || []).map((t) => t.id);
         setSelectedTagIds(currentTagIds);
@@ -81,7 +127,25 @@ export default function TopicDetail() {
     loadPerms();
   }, [user, topicId]);
 
+  useEffect(() => {
+    const loadFollow = async () => {
+      if (!user) {
+        setIsTopicFollowed(false);
+        return;
+      }
+      try {
+        const r = await api.get(`/follows/topics/${topicId}`);
+        setIsTopicFollowed(!!r.data?.following);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    loadFollow();
+  }, [user, topicId]);
+
   const isModOrAdmin = ["admin", "moderator"].includes(user?.role);
+  const canModerateTopic =
+    user?.role === "admin" || (user?.role === "moderator" && modPerms?.can_manage_tags);
   const showAudit = user?.role === "admin" || user?.role === "moderator";
   const tagNameById = (id) => allTags.find((t) => t.id === id)?.name || `#${id}`;
   const badgeById = (id) => badges.find((b) => b.id === id);
@@ -103,12 +167,144 @@ export default function TopicDetail() {
     }
   };
 
+  const cancelTagEdit = () => {
+    const currentTagIds = (topic?.tags || []).map((t) => t.id);
+    setSelectedTagIds(currentTagIds);
+    setEditingTags(false);
+  };
+
+  const toggleSticky = async () => {
+    try {
+      const res = await api.patch(`/topics/${topicId}/moderation`, {
+        is_sticky: !topic?.is_sticky,
+      });
+      setTopic((prev) => ({ ...prev, is_sticky: res.data.is_sticky }));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const toggleLocked = async () => {
+    try {
+      const res = await api.patch(`/topics/${topicId}/moderation`, {
+        is_locked: !topic?.is_locked,
+      });
+      setTopic((prev) => ({ ...prev, is_locked: res.data.is_locked }));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const toggleTopicFollow = async () => {
+    if (!user) {
+      setPostingError("Login required to follow.");
+      return;
+    }
+    try {
+      if (isTopicFollowed) {
+        await api.delete(`/follows/topics/${topicId}`);
+        setIsTopicFollowed(false);
+      } else {
+        await api.post(`/follows/topics/${topicId}`);
+        setIsTopicFollowed(true);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const reloadPostReactions = async () => {
+    try {
+      const r = await api.get(`/reactions/posts/summary?topicId=${topicId}`);
+      setPostReactions(mapPostReactions(r.data));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const reloadTopicReactions = async () => {
+    try {
+      const r = await api.get(`/reactions/topic/${topicId}`);
+      setTopicReactions(mapTopicReactions(r.data));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const togglePostReaction = async (postId, reactionId) => {
+    if (!user) {
+      setPostingError("Login required to react.");
+      return;
+    }
+    setPostReactions((prev) => {
+      const next = { ...prev };
+      const bucket = { ...(next[postId] || {}) };
+      const entry = bucket[reactionId]
+        ? { ...bucket[reactionId], users: [...(bucket[reactionId].users || [])] }
+        : { cnt: 0, users: [] };
+      const idx = entry.users.indexOf(user.id);
+      if (idx >= 0) {
+        entry.users.splice(idx, 1);
+      } else {
+        entry.users.push(user.id);
+      }
+      entry.cnt = entry.users.length;
+      if (entry.cnt <= 0) {
+        delete bucket[reactionId];
+      } else {
+        bucket[reactionId] = entry;
+      }
+      next[postId] = bucket;
+      return next;
+    });
+
+    try {
+      await api.post(`/reactions/post/${postId}`, { reactionId });
+    } catch (err) {
+      console.error(err);
+      reloadPostReactions();
+    }
+  };
+
+  const toggleTopicReaction = async (reactionId) => {
+    if (!user) {
+      setPostingError("Login required to react.");
+      return;
+    }
+    setTopicReactions((prev) => {
+      const next = { ...prev };
+      const entry = next[reactionId]
+        ? { ...next[reactionId], users: [...(next[reactionId].users || [])] }
+        : { cnt: 0, users: [] };
+      const idx = entry.users.indexOf(user.id);
+      if (idx >= 0) {
+        entry.users.splice(idx, 1);
+      } else {
+        entry.users.push(user.id);
+      }
+      entry.cnt = entry.users.length;
+      if (entry.cnt <= 0) {
+        delete next[reactionId];
+      } else {
+        next[reactionId] = entry;
+      }
+      return next;
+    });
+
+    try {
+      await api.post(`/reactions/topic/${topicId}`, { reactionId });
+    } catch (err) {
+      console.error(err);
+      reloadTopicReactions();
+    }
+  };
+
   const handleAddPost = async (e) => {
     e.preventDefault();
     setPostingError("");
 
     if (!user) {
-      setPostingError("Na pridanie prispevku sa musis prihlasit.");
+      setPostingError("Login required to post.");
       return;
     }
     if (!newPost.trim()) return;
@@ -128,9 +324,10 @@ export default function TopicDetail() {
       setPosts(allPosts.slice(1));
       setNewPost("");
       setReplyToId(null);
+      reloadPostReactions();
     } catch (err) {
       console.error(err);
-      setPostingError("Nepodarilo sa pridat prispevok.");
+      setPostingError(err.response?.data?.message || "Failed to create post.");
     }
   };
 
@@ -144,7 +341,7 @@ export default function TopicDetail() {
       );
     } catch (err) {
       console.error(err);
-      setPostingError("Nepodarilo sa zmazat prispevok.");
+      setPostingError("Failed to delete post.");
     }
   };
 
@@ -154,7 +351,7 @@ export default function TopicDetail() {
       navigate("/forum");
     } catch (err) {
       console.error(err);
-      setPostingError("Nepodarilo sa zmazat temu.");
+      setPostingError("Failed to delete topic.");
     }
   };
 
@@ -171,7 +368,7 @@ export default function TopicDetail() {
 
   const saveEditPost = async () => {
     if (!editContent.trim()) {
-      setPostingError("Obsah prispevku nesmie byt prazdny.");
+      setPostingError("Content cannot be empty.");
       return;
     }
 
@@ -187,7 +384,7 @@ export default function TopicDetail() {
       setEditContent("");
     } catch (err) {
       console.error(err);
-      setPostingError("Nepodarilo sa upravit prispevok.");
+      setPostingError("Failed to update post.");
     }
   };
 
@@ -211,38 +408,58 @@ export default function TopicDetail() {
 
   const renderProfileSide = (p) => {
     const showBadges = !p.author_hide_badges && p.badge_ids?.length > 0;
+    const joined = p.author_created_at
+      ? new Date(p.author_created_at).toLocaleDateString("sk-SK")
+      : "N/A";
 
     return (
       <div style={{ textAlign: "center" }}>
-        <div style={{
-          width: 64, height: 64, margin: "0 auto 6px auto",
-          borderRadius: 10, background: "#111827",
-          border: "1px solid #1f2937", overflow: "hidden",
-          display: "flex", alignItems: "center", justifyContent: "center"
-        }}>
+        <div
+          style={{
+            width: 64,
+            height: 64,
+            margin: "0 auto 6px auto",
+            borderRadius: 10,
+            background: "var(--chip-bg)",
+            border: "1px solid var(--card-border)",
+            overflow: "hidden",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
           {p.author_avatar_url ? (
             <img src={p.author_avatar_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           ) : (
-            <span style={{ color: "#9ca3af", fontSize: 22 }}>
+            <span style={{ color: "var(--text-muted)", fontSize: 22 }}>
               {p.author_nickname?.[0] || p.author_username?.[0]}
             </span>
           )}
         </div>
-        <Link to={`/profile/${p.author_id}`} style={{ color: "#22c55e", fontWeight: 600 }}>
+        <Link to={`/profile/${p.author_id}`} style={{ color: "var(--accent)", fontWeight: 600 }}>
           {p.author_nickname || p.author_username}
         </Link>
-        <div style={{ color: "#9ca3af", fontSize: 12, marginTop: 6 }}>
+        <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 4 }}>
+          {p.author_role || "user"}
+        </div>
+        <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 6 }}>
           Messages: {p.messages_count ?? 0}
+        </div>
+        <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
+          Karma: {p.author_karma ?? 0}
+        </div>
+        <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
+          Joined: {joined}
         </div>
 
         {showBadges && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 4, justifyContent: "center", marginTop: 6 }}>
-            {p.badge_ids.map((id) => {
-              const b = badgeById(id);
+            {p.badge_ids.map((bid) => {
+              const b = badgeById(bid);
               if (!b) return null;
               return (
-                <span key={id} title={b.name} style={{ width: 18, height: 18, borderRadius: 4, overflow: "hidden" }}>
-                  {b.icon_url ? <img src={b.icon_url} alt={b.name} style={{ width: "100%", height: "100%" }} /> : "★"}
+                <span key={bid} title={b.name} style={{ width: 18, height: 18, borderRadius: 4, overflow: "hidden" }}>
+                  {b.icon_url ? <img src={b.icon_url} alt={b.name} style={{ width: "100%", height: "100%" }} /> : "?"}
                 </span>
               );
             })}
@@ -251,6 +468,35 @@ export default function TopicDetail() {
       </div>
     );
   };
+
+  const renderReactionBar = (summaryMap, onToggle) => (
+    <div className="reaction-bar">
+      {reactions.map((r) => {
+        const entry = summaryMap?.[r.id];
+        const count = entry?.cnt || 0;
+        const reacted = !!user && (entry?.users || []).includes(user.id);
+        return (
+          <button
+            key={r.id}
+            type="button"
+            className={`reaction-btn ${reacted ? "active" : ""}`}
+            onClick={() => onToggle(r.id)}
+          >
+            {r.icon ? (
+              isImageIcon(r.icon) ? (
+                <img src={r.icon} alt={r.label} />
+              ) : (
+                <span className="reaction-emoji">{r.icon}</span>
+              )
+            ) : (
+              <span className="reaction-emoji">{(r.label || "+")[0]}</span>
+            )}
+            {count > 0 && <span className="reaction-count">{count}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
 
   const renderPost = (p, depth = 0) => {
     const canDeletePost =
@@ -268,18 +514,18 @@ export default function TopicDetail() {
         id={`post-${p.id}`}
         style={{
           marginLeft: depth * 22,
-          borderLeft: depth ? "2px solid #1f2937" : "none",
+          borderLeft: depth ? "2px solid var(--card-border)" : "none",
           paddingLeft: depth ? 12 : 0,
         }}
       >
         <div style={{ display: "flex", gap: 12, marginBottom: 10, alignItems: "stretch" }}>
           <div
             style={{
-              width: 140,
+              width: 160,
               padding: "10px 12px",
               borderRadius: 12,
-              background: "#0b1220",
-              border: "1px solid #1f2937",
+              background: "var(--topic-bg)",
+              border: "1px solid var(--card-border)",
             }}
           >
             {renderProfileSide(p)}
@@ -290,8 +536,8 @@ export default function TopicDetail() {
               flex: 1,
               padding: "10px 12px",
               borderRadius: 12,
-              background: "#020617",
-              border: "1px solid #1f2937",
+              background: "var(--input-bg)",
+              border: "1px solid var(--card-border)",
               position: "relative",
             }}
           >
@@ -308,7 +554,7 @@ export default function TopicDetail() {
                   cursor: "pointer",
                   fontSize: 14,
                 }}
-                title="Zmazat prispevok"
+                title="Delete post"
               >
                 x
               </button>
@@ -325,33 +571,35 @@ export default function TopicDetail() {
                   value={editContent}
                   onChange={(e) => setEditContent(e.target.value)}
                   style={{
-                    background: "#020617",
-                    border: "1px solid #1f2937",
+                    background: "var(--input-bg)",
+                    border: "1px solid var(--card-border)",
                     borderRadius: 8,
                     padding: "6px 8px",
-                    color: "#e5e7eb",
+                    color: "var(--text)",
                     resize: "vertical",
                     width: "100%",
                   }}
                 />
                 <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
                   <button type="button" onClick={saveEditPost} className="btn-primary">
-                    Ulozit
+                    Save
                   </button>
                   <button type="button" onClick={cancelEditPost} className="btn-secondary">
-                    Zrusit
+                    Cancel
                   </button>
                 </div>
               </div>
             ) : (
               <>
                 {p.is_deleted ? (
-                  <div style={{ marginBottom: 6, fontStyle: "italic", color: "#94a3b8" }}>
+                  <div style={{ marginBottom: 6, fontStyle: "italic", color: "var(--text-muted)" }}>
                     message deleted
                   </div>
                 ) : (
                   <div style={{ marginBottom: 6 }}>{p.content}</div>
                 )}
+
+                {renderReactionBar(postReactions[p.id], (rid) => togglePostReaction(p.id, rid))}
 
                 <div style={{ display: "flex", gap: 8 }}>
                   <button
@@ -370,7 +618,7 @@ export default function TopicDetail() {
                       className="btn-link"
                       style={{ padding: 0, fontSize: 13 }}
                     >
-                      Upravit
+                      Edit
                     </button>
                   )}
                 </div>
@@ -398,7 +646,7 @@ export default function TopicDetail() {
   return (
     <div className="page">
       {!topic || loading ? (
-        <p>Nacitavam temu...</p>
+        <p>Loading topic...</p>
       ) : (
         <>
           <div className="page-header">
@@ -406,19 +654,42 @@ export default function TopicDetail() {
               <div>
                 <h1 className="page-title">{topic.title}</h1>
                 <p className="page-subtitle">
-                  autor{" "}
+                  author{" "}
                   <Link to={`/profile/${topic.author_id}`}>{topic.author}</Link>{" "}
                   | {new Date(topic.created_at).toLocaleString("sk-SK")}
                 </p>
+                {topic.category_name && (
+                  <div className="topic-meta" style={{ marginTop: 6 }}>
+                    Category: {topic.category_name}
+                  </div>
+                )}
               </div>
 
-              {(user?.username === topic.author ||
-                user?.role === "admin" ||
-                (user?.role === "moderator" && modPerms?.can_delete_posts)) && (
-                <button onClick={() => setShowDeleteConfirm(true)} className="btn-secondary">
-                  Zmazat temu
-                </button>
-              )}
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                {user && (
+                  <button onClick={toggleTopicFollow} className="btn-secondary">
+                    {isTopicFollowed ? "Unfollow" : "Follow"}
+                  </button>
+                )}
+                {canModerateTopic && (
+                  <>
+                    <button onClick={toggleSticky} className="btn-secondary">
+                      {topic.is_sticky ? "Unpin" : "Pin"}
+                    </button>
+                    <button onClick={toggleLocked} className="btn-secondary">
+                      {topic.is_locked ? "Unlock" : "Lock"}
+                    </button>
+                  </>
+                )}
+
+                {(user?.username === topic.author ||
+                  user?.role === "admin" ||
+                  (user?.role === "moderator" && modPerms?.can_delete_posts)) && (
+                  <button onClick={() => setShowDeleteConfirm(true)} className="btn-secondary">
+                    Delete topic
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -433,7 +704,7 @@ export default function TopicDetail() {
           {isModOrAdmin && (
             <div style={{ marginTop: 10 }}>
               <button type="button" className="btn-secondary" onClick={() => setEditingTags((v) => !v)}>
-                {editingTags ? "Zrusit tagy" : "Upravit tagy"}
+                {editingTags ? "Cancel tags" : "Edit tags"}
               </button>
 
               {editingTags && (
@@ -445,15 +716,19 @@ export default function TopicDetail() {
                       onClick={() => toggleTag(tag.id)}
                       className="tag-pill"
                       style={{
-                        background: selectedTagIds.includes(tag.id) ? "#4f46e5" : "#020617",
-                        borderColor: selectedTagIds.includes(tag.id) ? "#6366f1" : "#1f2937",
+                        background: selectedTagIds.includes(tag.id) ? "var(--accent)" : "var(--chip-bg)",
+                        borderColor: selectedTagIds.includes(tag.id) ? "var(--accent)" : "var(--chip-border)",
+                        color: selectedTagIds.includes(tag.id) ? "#fff" : "var(--text)",
                       }}
                     >
                       {tag.name}
                     </button>
                   ))}
                   <button type="button" className="btn-primary" onClick={saveTags}>
-                    Ulozit tagy
+                    Save tags
+                  </button>
+                  <button type="button" className="btn-secondary" onClick={cancelTagEdit}>
+                    Cancel
                   </button>
                 </div>
               )}
@@ -464,16 +739,16 @@ export default function TopicDetail() {
             <div style={{ flex: "1 1 520px" }}>
               {initialPost && (
                 <div className="card" style={{ marginBottom: 16 }} id={`post-${initialPost.id}`}>
-                  <h2>Uvodny prispevok</h2>
+                  <h2>Opening post</h2>
 
                   <div style={{ display: "flex", gap: 12, alignItems: "stretch" }}>
                     <div
                       style={{
-                        width: 140,
+                        width: 160,
                         padding: "10px 12px",
                         borderRadius: 12,
-                        background: "#0b1220",
-                        border: "1px solid #1f2937",
+                        background: "var(--topic-bg)",
+                        border: "1px solid var(--card-border)",
                       }}
                     >
                       {renderProfileSide(initialPost)}
@@ -484,8 +759,8 @@ export default function TopicDetail() {
                         flex: 1,
                         padding: "10px 12px",
                         borderRadius: 12,
-                        background: "#020617",
-                        border: "1px solid #1f2937",
+                        background: "var(--input-bg)",
+                        border: "1px solid var(--card-border)",
                       }}
                     >
                       <div style={{ marginBottom: 6 }}>
@@ -494,15 +769,16 @@ export default function TopicDetail() {
                         </span>
                       </div>
                       <div>{initialPost.content}</div>
+                      {renderReactionBar(topicReactions, (rid) => toggleTopicReaction(rid))}
                     </div>
                   </div>
                 </div>
               )}
 
               <div className="card">
-                <h2>Komentare</h2>
+                <h2>Comments</h2>
                 {thread.length === 0 && (
-                  <p className="topic-meta">Zatial ziadne komentare. Bud prvy.</p>
+                  <p className="topic-meta">No comments yet.</p>
                 )}
                 <div style={{ marginTop: 12 }}>
                   {thread.map((p) => renderPost(p))}
@@ -510,41 +786,45 @@ export default function TopicDetail() {
               </div>
 
               <div className="card">
-                <h3>Napíš odpoveď</h3>
+                <h3>Reply</h3>
 
                 {replyToId && (
-                  <div style={{ marginBottom: 8, color: "#93c5fd" }}>
+                  <div style={{ marginBottom: 8, color: "var(--accent)" }}>
                     Replying to #{replyToId}{" "}
-                    <button className="btn-link" onClick={() => setReplyToId(null)}>zrušiť</button>
+                    <button className="btn-link" onClick={() => setReplyToId(null)}>cancel</button>
                   </div>
                 )}
 
-                <form onSubmit={handleAddPost}>
-                  <textarea
-                    rows={4}
-                    value={newPost}
-                    onChange={(e) => setNewPost(e.target.value)}
-                    style={{
-                      background: "#020617",
-                      border: "1px solid #1f2937",
-                      borderRadius: 10,
-                      padding: "8px 10px",
-                      color: "#e5e7eb",
-                      resize: "vertical",
-                    }}
-                    placeholder="Napis svoj prispevok..."
-                  />
+                {topic.is_locked ? (
+                  <p className="topic-meta">Topic is locked.</p>
+                ) : (
+                  <form onSubmit={handleAddPost}>
+                    <textarea
+                      rows={4}
+                      value={newPost}
+                      onChange={(e) => setNewPost(e.target.value)}
+                      style={{
+                        background: "var(--input-bg)",
+                        border: "1px solid var(--card-border)",
+                        borderRadius: 10,
+                        padding: "8px 10px",
+                        color: "var(--text)",
+                        resize: "vertical",
+                      }}
+                      placeholder="Write a reply..."
+                    />
 
-                  <button type="submit" className="btn-primary" style={{ marginTop: 8 }}>
-                    Odoslat
-                  </button>
-                </form>
+                    <button type="submit" className="btn-primary" style={{ marginTop: 8 }}>
+                      Send
+                    </button>
+                  </form>
+                )}
 
                 {postingError && <p style={{ color: "salmon", marginTop: 8 }}>{postingError}</p>}
 
                 <p style={{ marginTop: 8 }}>
                   <Link to="/forum" className="btn-link">
-                    Spat na forum
+                    Back to forum
                   </Link>
                 </p>
               </div>
@@ -554,7 +834,7 @@ export default function TopicDetail() {
               <div style={{ flex: "1 1 260px" }} className="card">
                 <h3>Tag edit history</h3>
                 {tagAudit.length === 0 ? (
-                  <p className="topic-meta">Zatial nic.</p>
+                  <p className="topic-meta">Nothing yet.</p>
                 ) : (
                   tagAudit.map((a) => (
                     <div key={a.id} style={{ marginBottom: 8 }}>
@@ -593,7 +873,7 @@ export default function TopicDetail() {
         >
           <div
             style={{
-              background: "#1f2937",
+              background: "var(--chip-bg)",
               padding: "24px",
               borderRadius: "12px",
               width: "90%",
@@ -602,14 +882,14 @@ export default function TopicDetail() {
               border: "1px solid #374151",
             }}
           >
-            <h2 style={{ marginBottom: 12 }}>Zmazat temu?</h2>
+            <h2 style={{ marginBottom: 12 }}>Delete topic?</h2>
             <p style={{ marginBottom: 24 }}>
-              Naozaj chces natrvalo odstranit tuto temu aj so vsetkymi prispevkami?
+              This will remove the topic and all posts.
             </p>
 
             <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
               <button onClick={() => setShowDeleteConfirm(false)} className="btn-secondary">
-                Zrusit
+                Cancel
               </button>
 
               <button
@@ -617,7 +897,7 @@ export default function TopicDetail() {
                 className="btn-primary"
                 style={{ background: "#ef4444", borderColor: "#ef4444" }}
               >
-                Zmazat
+                Delete
               </button>
             </div>
           </div>

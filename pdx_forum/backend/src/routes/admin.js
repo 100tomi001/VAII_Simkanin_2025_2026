@@ -10,7 +10,7 @@ router.get("/users", authRequired, requireAdmin, async (req, res) => {
       `
       SELECT 
         u.id, u.username, u.email, u.role, u.is_banned, u.banned_until,
-        mp.can_manage_tags, mp.can_delete_posts, mp.can_ban_users
+        mp.can_manage_tags, mp.can_delete_posts, mp.can_ban_users, mp.can_edit_wiki, mp.can_manage_reactions
       FROM users u
       LEFT JOIN moderator_permissions mp ON mp.user_id = u.id
       ORDER BY u.id ASC
@@ -57,19 +57,21 @@ router.patch("/users/:id/role", authRequired, requireAdmin, async (req, res) => 
 
 router.patch("/users/:id/permissions", authRequired, requireAdmin, async (req, res) => {
   const userId = req.params.id;
-  const { can_manage_tags, can_delete_posts, can_ban_users } = req.body;
+  const { can_manage_tags, can_delete_posts, can_ban_users, can_edit_wiki, can_manage_reactions } = req.body;
 
   try {
     await query(
       `
-      INSERT INTO moderator_permissions (user_id, can_manage_tags, can_delete_posts, can_ban_users)
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO moderator_permissions (user_id, can_manage_tags, can_delete_posts, can_ban_users, can_edit_wiki, can_manage_reactions)
+      VALUES ($1, $2, $3, $4, $5, $6)
       ON CONFLICT (user_id) DO UPDATE SET
         can_manage_tags = EXCLUDED.can_manage_tags,
         can_delete_posts = EXCLUDED.can_delete_posts,
-        can_ban_users = EXCLUDED.can_ban_users
+        can_ban_users = EXCLUDED.can_ban_users,
+        can_edit_wiki = EXCLUDED.can_edit_wiki,
+        can_manage_reactions = EXCLUDED.can_manage_reactions
       `,
-      [userId, !!can_manage_tags, !!can_delete_posts, !!can_ban_users]
+      [userId, !!can_manage_tags, !!can_delete_posts, !!can_ban_users, !!can_edit_wiki, !!can_manage_reactions]
     );
 
     // automaticky nastav rolu moderator

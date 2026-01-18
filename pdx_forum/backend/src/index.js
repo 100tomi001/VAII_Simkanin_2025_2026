@@ -15,6 +15,8 @@ import wikiRoutes from "./routes/wiki.js";
 import notificationRoutes from "./routes/notifications.js";
 import messageRoutes from "./routes/messages.js";
 import reactionRoutes from "./routes/reactions.js";
+import categoryRoutes from "./routes/categories.js";
+import followRoutes from "./routes/follows.js";
 
 
 const app = express();
@@ -35,6 +37,8 @@ app.use("/api/wiki", wikiRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/reactions", reactionRoutes);
+app.use("/api/categories", categoryRoutes);
+app.use("/api/follows", followRoutes);
 
 import { query } from "./db.js";
 
