@@ -263,7 +263,15 @@ export default function TopicDetail() {
     const isExpanded = !!expandedReplies[p.id];
 
     return (
-      <div key={p.id} style={{ marginLeft: depth * 22, borderLeft: depth ? "2px solid #1f2937" : "none", paddingLeft: depth ? 12 : 0 }}>
+      <div
+        key={p.id}
+        id={`post-${p.id}`}
+        style={{
+          marginLeft: depth * 22,
+          borderLeft: depth ? "2px solid #1f2937" : "none",
+          paddingLeft: depth ? 12 : 0,
+        }}
+      >
         <div style={{ display: "flex", gap: 12, marginBottom: 10, alignItems: "stretch" }}>
           <div
             style={{
@@ -404,7 +412,9 @@ export default function TopicDetail() {
                 </p>
               </div>
 
-              {user?.username === topic.author && (
+              {(user?.username === topic.author ||
+                user?.role === "admin" ||
+                (user?.role === "moderator" && modPerms?.can_delete_posts)) && (
                 <button onClick={() => setShowDeleteConfirm(true)} className="btn-secondary">
                   Zmazat temu
                 </button>
@@ -453,7 +463,7 @@ export default function TopicDetail() {
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
             <div style={{ flex: "1 1 520px" }}>
               {initialPost && (
-                <div className="card" style={{ marginBottom: 16 }}>
+                <div className="card" style={{ marginBottom: 16 }} id={`post-${initialPost.id}`}>
                   <h2>Uvodny prispevok</h2>
 
                   <div style={{ display: "flex", gap: 12, alignItems: "stretch" }}>

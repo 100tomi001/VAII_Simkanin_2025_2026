@@ -87,10 +87,15 @@ export default function ProfileView() {
                 Last seen: {profile.last_seen ? new Date(profile.last_seen).toLocaleString("sk-SK") : "N/A"}
               </div>
             </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               {isOwnProfile && (
                 <Link to="/settings/profile" className="btn-secondary">
                   Upraviť profil
+                </Link>
+              )}
+              {!isOwnProfile && user && (
+                <Link to={`/messages/${profile.id}`} className="btn-secondary">
+                  Napísať správu
                 </Link>
               )}
               {canMakeModerator && (

@@ -12,6 +12,9 @@ import profileRoutes from "./routes/profil.js";
 import userRoutes from "./routes/users.js";
 import badgeRoutes from "./routes/badges.js";
 import wikiRoutes from "./routes/wiki.js";
+import notificationRoutes from "./routes/notifications.js";
+import messageRoutes from "./routes/messages.js";
+import reactionRoutes from "./routes/reactions.js";
 
 
 const app = express();
@@ -29,6 +32,9 @@ app.use("/api/profile", profileRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/badges", badgeRoutes);
 app.use("/api/wiki", wikiRoutes);
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/messages", messageRoutes);
+app.use("/api/reactions", reactionRoutes);
 
 import { query } from "./db.js";
 

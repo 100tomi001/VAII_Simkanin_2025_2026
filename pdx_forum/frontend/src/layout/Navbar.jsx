@@ -1,14 +1,75 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useEffect, useRef, useState } from "react";
+import api from "../api/axios";
 
 export default function Navbar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [notifCount, setNotifCount] = useState(0);
+  const [msgCount, setMsgCount] = useState(0);
+  const profileRef = useRef(null);
+  const adminRef = useRef(null);
 
   const handleLogout = () => {
     logout();
     navigate("/");
   };
+
+  useEffect(() => {
+    const onClick = (e) => {
+      if (profileRef.current && !profileRef.current.contains(e.target)) {
+        setProfileOpen(false);
+      }
+      if (adminRef.current && !adminRef.current.contains(e.target)) {
+        setAdminOpen(false);
+      }
+    };
+    window.addEventListener("click", onClick);
+    return () => window.removeEventListener("click", onClick);
+  }, []);
+
+  useEffect(() => {
+    const loadCounts = async () => {
+      if (!user) {
+        setNotifCount(0);
+        setMsgCount(0);
+        return;
+      }
+      try {
+        const [n, m] = await Promise.all([
+          api.get("/notifications/unread-count"),
+          api.get("/messages/unread/count/mine")
+        ]);
+        setNotifCount(n.data?.count || 0);
+        setMsgCount(m.data?.count || 0);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    loadCounts();
+  }, [user]);
+
+  // reaguj na oznacovanie notifikacii ako precitanych (posielame custom event z NotificationsPage)
+  useEffect(() => {
+    const onNotifRead = (e) => {
+      const dec = e?.detail?.count ?? 1;
+      setNotifCount((prev) => Math.max(0, prev - dec));
+    };
+    window.addEventListener("notif-read", onNotifRead);
+    return () => window.removeEventListener("notif-read", onNotifRead);
+  }, []);
+
+  useEffect(() => {
+    const onMsgRead = (e) => {
+      const dec = e?.detail?.count ?? 1;
+      setMsgCount((prev) => Math.max(0, prev - dec));
+    };
+    window.addEventListener("msg-read", onMsgRead);
+    return () => window.removeEventListener("msg-read", onMsgRead);
+  }, []);
 
   return (
     <header className="navbar">
@@ -26,13 +87,120 @@ export default function Navbar() {
       <div className="navbar-right">
         {user ? (
           <>
-            <Link to="/profile" className="nav-user">
-              {user.username}
+            <div
+              ref={profileRef}
+              style={{ position: "relative" }}
+            >
+              <button
+                className="btn-secondary"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setProfileOpen((v) => !v);
+                  setAdminOpen(false);
+                }}
+              >
+                {user.username}
+              </button>
+              {profileOpen && (
+                <div
+                  style={{
+                    position: "absolute",
+                    right: 0,
+                    marginTop: 6,
+                    background: "#0b1220",
+                    border: "1px solid #1f2937",
+                    borderRadius: 10,
+                    minWidth: 160,
+                    padding: 8,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 6,
+                    zIndex: 20,
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Link to="/profile" className="btn-link">Profil</Link>
+                  <Link to="/settings/profile" className="btn-link">Upraviť profil</Link>
+                  <button
+                    className="btn-link"
+                    style={{ textAlign: "left" }}
+                    onClick={handleLogout}
+                  >
+                    Odhlásiť sa
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {(user.role === "admin" || user.role === "moderator") && (
+              <div ref={adminRef} style={{ position: "relative" }}>
+                <button
+                  className="btn-secondary"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setAdminOpen((v) => !v);
+                    setProfileOpen(false);
+                  }}
+                >
+                  Správa
+                </button>
+                {adminOpen && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      right: 0,
+                      marginTop: 6,
+                      background: "#0b1220",
+                      border: "1px solid #1f2937",
+                      borderRadius: 10,
+                      minWidth: 180,
+                      padding: 8,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 6,
+                      zIndex: 20,
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Link to="/manage/meta" className="btn-link">Tagy & Badge</Link>
+                    <Link to="/wiki/new" className="btn-link">Nový článok</Link>
+                    {user.role === "admin" && <Link to="/admin" className="btn-link">Admin panel</Link>}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <Link to="/notifications" className="btn-secondary" style={{ position: "relative" }}>
+              🔔
+              {notifCount > 0 && (
+                <span style={{
+                  position: "absolute",
+                  top: -6,
+                  right: -6,
+                  background: "#ef4444",
+                  color: "#fff",
+                  borderRadius: "999px",
+                  fontSize: 10,
+                  padding: "2px 5px"
+                }}>{notifCount}</span>
+              )}
             </Link>
-            {user.role === "admin" && <Link to="/admin">Admin</Link>}
-            <button className="btn-secondary" onClick={handleLogout}>
-              Odhlásiť sa
-            </button>
+
+            <Link to="/messages/1" className="btn-secondary" style={{ position: "relative" }}>
+              ✉️
+              {msgCount > 0 && (
+                <span style={{
+                  position: "absolute",
+                  top: -6,
+                  right: -6,
+                  background: "#ef4444",
+                  color: "#fff",
+                  borderRadius: "999px",
+                  fontSize: 10,
+                  padding: "2px 5px"
+                }}>{msgCount}</span>
+              )}
+            </Link>
           </>
         ) : (
           <>
@@ -43,9 +211,6 @@ export default function Navbar() {
               Registrácia
             </Link>
           </>
-        )}
-        {user && (user.role === "admin" || user.role === "moderator") && (
-        <Link to="/wiki/new">Nový článok</Link>
         )}
       </div>
     </header>

@@ -50,14 +50,16 @@ router.post("/:topicId", authRequired, blockBanned, async (req, res) => {
   }
 
   try {
+    let parentAuthorId = null;
     if (parent_post_id) {
       const parentCheck = await query(
-        "SELECT id FROM posts WHERE id = $1 AND topic_id = $2",
+        "SELECT id, user_id FROM posts WHERE id = $1 AND topic_id = $2",
         [parent_post_id, topicId]
       );
       if (parentCheck.rowCount === 0) {
         return res.status(400).json({ message: "Invalid parent_post_id" });
       }
+      parentAuthorId = parentCheck.rows[0].user_id;
     }
 
     const insertRes = await query(
@@ -77,6 +79,29 @@ router.post("/:topicId", authRequired, blockBanned, async (req, res) => {
     );
 
     const u = userRes.rows[0];
+
+    // Notify parent author when someone replies to their comment (skip self-replies)
+    if (parentAuthorId && parentAuthorId !== req.user.id) {
+      try {
+        await query(
+          `INSERT INTO notifications (user_id, type, payload)
+           VALUES ($1, 'comment_reply', $2::jsonb)`,
+          [
+            parentAuthorId,
+            JSON.stringify({
+              topicId,
+              postId: postRow.id,
+              parentPostId: parent_post_id,
+              authorId: u.id,
+              authorNickname: u.nickname || u.username,
+              snippet: postRow.content.slice(0, 140),
+            }),
+          ]
+        );
+      } catch (notifErr) {
+        console.error("Failed to create reply notification:", notifErr);
+      }
+    }
 
     res.status(201).json({
       id: postRow.id,

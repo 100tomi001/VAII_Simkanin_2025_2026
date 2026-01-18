@@ -35,4 +35,16 @@ router.delete("/assign/:badgeId", authRequired, blockBanned, async (req, res) =>
   res.json({ message: "Badge removed" });
 });
 
+// delete badge (admin/mod with can_manage_tags)
+router.delete("/:id", authRequired, blockBanned, requirePermission("can_manage_tags"), async (req, res) => {
+  try {
+    await query("DELETE FROM user_badges WHERE badge_id = $1", [req.params.id]);
+    await query("DELETE FROM badges WHERE id = $1", [req.params.id]);
+    res.json({ message: "Badge deleted" });
+  } catch (err) {
+    console.error("DELETE BADGE ERROR:", err);
+    res.status(500).json({ message: "Server error deleting badge" });
+  }
+});
+
 export default router;

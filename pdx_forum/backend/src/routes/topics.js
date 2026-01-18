@@ -152,4 +152,39 @@ router.patch("/:id/tags", authRequired, blockBanned, requirePermission("can_mana
   }
 });
 
+// DELETE /api/topics/:id - autor alebo admin/moderator s can_delete_posts
+router.delete("/:id", authRequired, blockBanned, async (req, res) => {
+  const topicId = req.params.id;
+
+  try {
+    const check = await query("SELECT user_id FROM topics WHERE id = $1", [topicId]);
+    if (check.rowCount === 0) return res.status(404).json({ message: "Topic not found" });
+
+    const ownerId = check.rows[0].user_id;
+    let canDelete = ownerId === req.user.id;
+
+    if (!canDelete && req.user.role === "admin") {
+      canDelete = true;
+    }
+
+    if (!canDelete && req.user.role === "moderator") {
+      const permRes = await query(
+        "SELECT can_delete_posts FROM moderator_permissions WHERE user_id = $1",
+        [req.user.id]
+      );
+      if (permRes.rows[0]?.can_delete_posts) canDelete = true;
+    }
+
+    if (!canDelete) {
+      return res.status(403).json({ message: "Not allowed to delete this topic" });
+    }
+
+    await query("DELETE FROM topics WHERE id = $1", [topicId]);
+    res.json({ message: "Topic deleted" });
+  } catch (err) {
+    console.error("DELETE TOPIC ERROR:", err);
+    res.status(500).json({ message: "Server error deleting topic" });
+  }
+});
+
 export default router;
