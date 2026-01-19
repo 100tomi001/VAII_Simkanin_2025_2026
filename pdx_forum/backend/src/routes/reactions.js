@@ -17,10 +17,21 @@ router.get("/", async (_req, res) => {
 router.post("/", authRequired, blockBanned, requirePermission("can_manage_reactions"), async (req, res) => {
   const { key, label, icon } = req.body;
   if (!key || !label) return res.status(400).json({ message: "Missing key/label" });
+  const cleanKey = key.trim();
+  const cleanLabel = label.trim();
+  if (!/^[a-z0-9_-]{2,32}$/.test(cleanKey)) {
+    return res.status(400).json({ message: "Invalid reaction key" });
+  }
+  if (cleanLabel.length < 2 || cleanLabel.length > 30) {
+    return res.status(400).json({ message: "Invalid reaction label length" });
+  }
+  if (icon && icon.length > 500) {
+    return res.status(400).json({ message: "Icon too long" });
+  }
   try {
     const r = await query(
       "INSERT INTO reactions (key, label, icon) VALUES ($1,$2,$3) RETURNING id, key, label, icon",
-      [key.trim(), label.trim(), icon || null]
+      [cleanKey, cleanLabel, icon || null]
     );
     res.status(201).json(r.rows[0]);
   } catch (err) {

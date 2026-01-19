@@ -64,6 +64,10 @@ router.post("/:topicId", authRequired, blockBanned, async (req, res) => {
   if (!content || !content.trim()) {
     return res.status(400).json({ message: "Missing content" });
   }
+  const cleanContent = content.trim();
+  if (cleanContent.length < 1 || cleanContent.length > 5000) {
+    return res.status(400).json({ message: "Content length is invalid" });
+  }
 
   try {
     const lockRes = await query("SELECT is_locked, title FROM topics WHERE id = $1", [topicId]);
@@ -93,7 +97,7 @@ router.post("/:topicId", authRequired, blockBanned, async (req, res) => {
       VALUES ($1, $2, $3, $4)
       RETURNING id, content, created_at, parent_post_id
       `,
-      [topicId, req.user.id, content.trim(), parent_post_id]
+      [topicId, req.user.id, cleanContent, parent_post_id]
     );
 
     const postRow = insertRes.rows[0];
@@ -290,7 +294,11 @@ router.patch("/:id", authRequired, blockBanned, async (req, res) => {
   const { content } = req.body;
 
   if (!content || !content.trim()) {
-    return res.status(400).json({ message: "Content nesmie byt prazdny." });
+    return res.status(400).json({ message: "Content cannot be empty." });
+  }
+  const cleanContent = content.trim();
+  if (cleanContent.length < 1 || cleanContent.length > 5000) {
+    return res.status(400).json({ message: "Content length is invalid." });
   }
 
   try {
@@ -318,7 +326,7 @@ router.patch("/:id", authRequired, blockBanned, async (req, res) => {
       WHERE id = $2
       RETURNING id, topic_id, user_id, content, created_at
       `,
-      [content.trim(), postId]
+      [cleanContent, postId]
     );
 
     const updated = updateRes.rows[0];

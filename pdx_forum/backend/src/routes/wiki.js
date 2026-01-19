@@ -4,6 +4,10 @@ import { query } from "../db.js";
 import { authRequired, blockBanned, requirePermission } from "../middleware/auth.js";
 
 const router = express.Router();
+const MAX_TITLE_LEN = 120;
+const MAX_SUMMARY_LEN = 300;
+const MAX_COVER_LEN = 500;
+const ALLOWED_STATUS = ["draft", "published", "archived"];
 const tryGetUser = (req) => {
   const authHeader = req.headers.authorization;
   if (!authHeader) return null;
@@ -217,6 +221,19 @@ router.post("/", authRequired, blockBanned, requirePermission("can_edit_wiki"), 
   const baseSlug = slugify(title);
   const requestedSlug = slugOverride ? slugify(slugOverride) : baseSlug;
   if (!title || !content) return res.status(400).json({ message: "Missing title/content" });
+  const cleanTitle = title.trim();
+  if (cleanTitle.length < 3 || cleanTitle.length > MAX_TITLE_LEN) {
+    return res.status(400).json({ message: "Title length is invalid" });
+  }
+  if (summary && summary.length > MAX_SUMMARY_LEN) {
+    return res.status(400).json({ message: "Summary too long" });
+  }
+  if (cover_image && cover_image.length > MAX_COVER_LEN) {
+    return res.status(400).json({ message: "Cover image URL too long" });
+  }
+  if (status && !ALLOWED_STATUS.includes(status)) {
+    return res.status(400).json({ message: "Invalid status" });
+  }
   if (!requestedSlug) return res.status(400).json({ message: "Invalid title" });
   try {
     if (await isSlugTaken(requestedSlug)) {
@@ -232,7 +249,7 @@ router.post("/", authRequired, blockBanned, requirePermission("can_edit_wiki"), 
       `INSERT INTO wiki_articles (title, slug, summary, content, cover_image, category_id, status, created_by, updated_by)
        VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$8)
        RETURNING *`,
-      [title, requestedSlug, summary || "", contentJson, cover_image || null, category_id || null, status, req.user.id]
+      [cleanTitle, requestedSlug, summary || "", contentJson, cover_image || null, category_id || null, status, req.user.id]
     );
     res.status(201).json(r.rows[0]);
   } catch (err) {
@@ -245,6 +262,18 @@ router.post("/", authRequired, blockBanned, requirePermission("can_edit_wiki"), 
 router.patch("/:id", authRequired, blockBanned, requirePermission("can_edit_wiki"), async (req, res) => {
   const { title, summary, content, cover_image, category_id, status, slug: slugOverride } = req.body;
   try {
+    if (title && (title.trim().length < 3 || title.trim().length > MAX_TITLE_LEN)) {
+      return res.status(400).json({ message: "Title length is invalid" });
+    }
+    if (summary && summary.length > MAX_SUMMARY_LEN) {
+      return res.status(400).json({ message: "Summary too long" });
+    }
+    if (cover_image && cover_image.length > MAX_COVER_LEN) {
+      return res.status(400).json({ message: "Cover image URL too long" });
+    }
+    if (status && !ALLOWED_STATUS.includes(status)) {
+      return res.status(400).json({ message: "Invalid status" });
+    }
     // history
     const old = await query("SELECT * FROM wiki_articles WHERE id=$1", [req.params.id]);
     if (old.rowCount === 0) return res.status(404).json({ message: "Article not found" });

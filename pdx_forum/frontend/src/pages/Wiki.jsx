@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
@@ -9,13 +9,40 @@ export default function Wiki() {
   const [articles, setArticles] = useState([]);
   const [categories, setCategories] = useState([]);
   const [recent, setRecent] = useState([]);
+  const [recentLoading, setRecentLoading] = useState(true);
   const [drafts, setDrafts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [query, setQuery] = useState(searchParams.get("q") || "");
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get("category") || "");
+  const searchInputRef = useRef(null);
   const isEditor = user && (user.role === "admin" || canEditWiki);
+  const hasSearch = !!query;
+  const hasFilters = hasSearch || selectedCategory;
+  const selectedCategoryLabel =
+    categories.find((c) => c.slug === selectedCategory)?.name || selectedCategory;
+  const filterParts = [];
+  if (query) filterParts.push(`search "${query}"`);
+  if (selectedCategoryLabel) filterParts.push(`category "${selectedCategoryLabel}"`);
+  const filterSummary = filterParts.join(", ");
+
+  useEffect(() => {
+    const handler = (e) => {
+      const tag = e.target?.tagName?.toLowerCase();
+      const isTyping =
+        tag === "input" ||
+        tag === "textarea" ||
+        tag === "select" ||
+        e.target?.isContentEditable;
+      if (!isTyping && e.key === "/") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   useEffect(() => {
     const loadPerms = async () => {
@@ -40,6 +67,7 @@ export default function Wiki() {
 
   useEffect(() => {
     const loadMeta = async () => {
+      setRecentLoading(true);
       try {
         const [cats, rec] = await Promise.all([
           api.get("/wiki/categories/list"),
@@ -49,6 +77,8 @@ export default function Wiki() {
         setRecent(rec.data);
       } catch (err) {
         console.error(err);
+      } finally {
+        setRecentLoading(false);
       }
     };
     loadMeta();
@@ -104,6 +134,17 @@ export default function Wiki() {
     updateSearchParams(query, next);
   };
 
+  const clearSearch = () => {
+    setQuery("");
+    updateSearchParams("", selectedCategory);
+  };
+
+  const clearAllFilters = () => {
+    setQuery("");
+    setSelectedCategory("");
+    updateSearchParams("", "");
+  };
+
   const publishDraft = async (draftId) => {
     try {
       await api.patch(`/wiki/${draftId}`, { status: "published" });
@@ -144,10 +185,12 @@ export default function Wiki() {
               <button
                 key={c.id}
                 className="wiki-link"
+                title={c.description ? `${c.name} — ${c.description}` : `Filter by category: ${c.name}`}
                 style={{
                   textAlign: "left",
                   color: selectedCategory === c.slug ? "var(--accent)" : undefined,
                 }}
+                aria-pressed={selectedCategory === c.slug}
                 onClick={() => onCategoryClick(c.slug)}
               >
                 {c.name}
@@ -164,24 +207,63 @@ export default function Wiki() {
           <p className="page-subtitle wiki-subtitle">Articles and guides.</p>
         </div>
 
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-          <input
-            value={query}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Search wiki..."
-            style={{ flex: 1 }}
-          />
-          {selectedCategory && (
-            <button className="btn-secondary" onClick={() => onCategoryClick(selectedCategory)}>
-              Clear category
-            </button>
+        <div className="filter-bar">
+          <div className="filter-row">
+            <input
+              ref={searchInputRef}
+              type="search"
+              value={query}
+              onChange={(e) => onSearchChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") onSearchChange(e.target.value);
+                if (e.key === "Escape" && query) clearSearch();
+              }}
+              placeholder="Search wiki..."
+              style={{ flex: 1 }}
+            />
+            {hasSearch && (
+              <button className="btn-secondary" onClick={clearSearch}>
+                Clear search
+              </button>
+            )}
+            {selectedCategory && (
+              <button className="btn-secondary" onClick={() => onCategoryClick(selectedCategory)}>
+                Clear category
+              </button>
+            )}
+          </div>
+          <div className="filter-hint">Tip: Press “/” to focus search. Esc clears search.</div>
+          {hasFilters && (
+            <div className="filter-chips">
+              {query && (
+                <span className="filter-chip">
+                  Search: "{query}"
+                  <button type="button" onClick={clearSearch}>x</button>
+                </span>
+              )}
+              {selectedCategory && (
+                <span className="filter-chip">
+                  Category: {selectedCategoryLabel}
+                  <button type="button" onClick={() => onCategoryClick(selectedCategory)}>x</button>
+                </span>
+              )}
+            </div>
           )}
         </div>
 
         {loading ? (
-          <p>Loading...</p>
+          <div style={{ display: "grid", gap: 12 }}>
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={`wiki-skel-${i}`} className="topic-item wiki-item skeleton-item">
+                <div className="skeleton skeleton-title" />
+                <div className="skeleton skeleton-line" style={{ width: "45%", marginTop: 8 }} />
+                <div className="skeleton skeleton-line" style={{ width: "90%", marginTop: 8 }} />
+              </div>
+            ))}
+          </div>
         ) : (
           <div style={{ display: "grid", gap: 12 }}>
+            <div className="topic-meta">{articles.length} results</div>
             {articles.map((a) => (
               <div key={a.id} className="topic-item wiki-item">
                 <div>
@@ -195,7 +277,26 @@ export default function Wiki() {
                 </div>
               </div>
             ))}
-            {articles.length === 0 && <p className="topic-meta">No articles.</p>}
+            {articles.length === 0 && (
+              <div className="empty-state">
+                <div>{hasFilters ? `No articles for ${filterSummary}.` : "No articles yet."}</div>
+                {hasFilters && (
+                  <div className="topic-meta" style={{ marginTop: 6 }}>
+                    Try clearing filters or changing search.
+                  </div>
+                )}
+                {hasFilters && (
+                  <button className="btn-secondary" onClick={clearAllFilters} style={{ marginTop: 8 }}>
+                    Clear filters
+                  </button>
+                )}
+                {isEditor && !hasFilters && (
+                  <Link to="/wiki/new" className="btn-secondary" style={{ marginTop: 8, display: "inline-block" }}>
+                    Create article
+                  </Link>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -206,15 +307,26 @@ export default function Wiki() {
           <Link to="/wiki/recent" className="wiki-link">All</Link>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
-          {recent.map((r, i) => (
-            <div key={`${r.article_id}-${i}`}>
-              <Link to={`/wiki/${r.slug}`} className="wiki-link">{r.title}</Link>
-              <div className="topic-meta">
-                {r.changed_by || "unknown"} - {new Date(r.created_at).toLocaleString("sk-SK")}
+          {recentLoading ? (
+            Array.from({ length: 5 }).map((_, i) => (
+              <div key={`recent-skel-${i}`}>
+                <div className="skeleton skeleton-line" style={{ width: "80%" }} />
+                <div className="skeleton skeleton-line" style={{ width: "60%", marginTop: 6 }} />
               </div>
-            </div>
-          ))}
-          {recent.length === 0 && <div className="topic-meta">No recent changes.</div>}
+            ))
+          ) : (
+            <>
+              {recent.map((r, i) => (
+                <div key={`${r.article_id}-${i}`}>
+                  <Link to={`/wiki/${r.slug}`} className="wiki-link">{r.title}</Link>
+                  <div className="topic-meta">
+                    {r.changed_by || "unknown"} - {new Date(r.created_at).toLocaleString("sk-SK")}
+                  </div>
+                </div>
+              ))}
+              {recent.length === 0 && <div className="topic-meta">No recent changes.</div>}
+            </>
+          )}
         </div>
 
         {isEditor && (

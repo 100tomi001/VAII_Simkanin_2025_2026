@@ -8,8 +8,14 @@ export default function ManageMeta() {
   const [badges, setBadges] = useState([]);
   const [categories, setCategories] = useState([]);
   const [newTag, setNewTag] = useState("");
-  const [newBadge, setNewBadge] = useState({ name: "", icon_url: "" });
+  const [newBadge, setNewBadge] = useState({ name: "", description: "", icon_url: "" });
   const [newCategory, setNewCategory] = useState({ name: "", description: "", sort_order: 0 });
+  const [editingTagId, setEditingTagId] = useState(null);
+  const [editingBadgeId, setEditingBadgeId] = useState(null);
+  const [editingCategoryId, setEditingCategoryId] = useState(null);
+  const [tagDrafts, setTagDrafts] = useState({});
+  const [badgeDrafts, setBadgeDrafts] = useState({});
+  const [categoryDrafts, setCategoryDrafts] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -72,10 +78,11 @@ export default function ManageMeta() {
     try {
       const res = await api.post("/badges", {
         name: newBadge.name.trim(),
+        description: newBadge.description?.trim() || null,
         icon_url: newBadge.icon_url || null,
       });
       setBadges((prev) => [...prev, res.data]);
-      setNewBadge({ name: "", icon_url: "" });
+      setNewBadge({ name: "", description: "", icon_url: "" });
       setError("");
     } catch (err) {
       console.error(err);
@@ -106,6 +113,77 @@ export default function ManageMeta() {
     if (!file) return;
     const url = URL.createObjectURL(file);
     setNewBadge((p) => ({ ...p, icon_url: url }));
+  };
+
+  const startEditTag = (t) => {
+    setEditingTagId(t.id);
+    setTagDrafts((prev) => ({ ...prev, [t.id]: { name: t.name } }));
+  };
+
+  const startEditBadge = (b) => {
+    setEditingBadgeId(b.id);
+    setBadgeDrafts((prev) => ({
+      ...prev,
+      [b.id]: { name: b.name, description: b.description || "", icon_url: b.icon_url || "" },
+    }));
+  };
+
+  const startEditCategory = (c) => {
+    setEditingCategoryId(c.id);
+    setCategoryDrafts((prev) => ({
+      ...prev,
+      [c.id]: { name: c.name, description: c.description || "", sort_order: c.sort_order || 0 },
+    }));
+  };
+
+  const saveTag = async (id) => {
+    const draft = tagDrafts[id];
+    if (!draft?.name?.trim()) return;
+    try {
+      const res = await api.patch(`/tags/${id}`, { name: draft.name.trim() });
+      setTags((prev) => prev.map((t) => (t.id === id ? res.data : t)));
+      setEditingTagId(null);
+      setError("");
+    } catch (err) {
+      console.error(err);
+      setError(err.response?.data?.message || "Chyba pri uprave tagu.");
+    }
+  };
+
+  const saveBadge = async (id) => {
+    const draft = badgeDrafts[id];
+    if (!draft?.name?.trim()) return;
+    try {
+      const res = await api.patch(`/badges/${id}`, {
+        name: draft.name.trim(),
+        description: draft.description?.trim() || null,
+        icon_url: draft.icon_url || null,
+      });
+      setBadges((prev) => prev.map((b) => (b.id === id ? res.data : b)));
+      setEditingBadgeId(null);
+      setError("");
+    } catch (err) {
+      console.error(err);
+      setError(err.response?.data?.message || "Chyba pri uprave badge.");
+    }
+  };
+
+  const saveCategory = async (id) => {
+    const draft = categoryDrafts[id] || {};
+    if (!draft.name?.trim()) return;
+    try {
+      const res = await api.patch(`/categories/${id}`, {
+        name: draft.name.trim(),
+        description: draft.description,
+        sort_order: Number(draft.sort_order) || 0,
+      });
+      setCategories((prev) => prev.map((c) => (c.id === id ? res.data : c)));
+      setEditingCategoryId(null);
+      setError("");
+    } catch (err) {
+      console.error(err);
+      setError(err.response?.data?.message || "Chyba pri uprave kategorie.");
+    }
   };
 
   const addCategory = async () => {
@@ -173,15 +251,46 @@ export default function ManageMeta() {
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {tags.map((t) => (
                 <div key={t.id} className="tag-pill" style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  {t.name}
-                  <button
-                    type="button"
-                    className="btn-link"
-                    style={{ padding: 0 }}
-                    onClick={() => deleteTag(t.id)}
-                  >
-                    x
-                  </button>
+                  {editingTagId === t.id ? (
+                    <>
+                      <input
+                        value={tagDrafts[t.id]?.name || ""}
+                        onChange={(e) =>
+                          setTagDrafts((prev) => ({
+                            ...prev,
+                            [t.id]: { ...prev[t.id], name: e.target.value },
+                          }))
+                        }
+                        style={{ width: 120 }}
+                      />
+                      <button type="button" className="btn-link" style={{ padding: 0 }} onClick={() => saveTag(t.id)}>
+                        save
+                      </button>
+                      <button type="button" className="btn-link" style={{ padding: 0 }} onClick={() => setEditingTagId(null)}>
+                        cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {t.name}
+                      <button
+                        type="button"
+                        className="btn-link"
+                        style={{ padding: 0 }}
+                        onClick={() => startEditTag(t)}
+                      >
+                        edit
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-link"
+                        style={{ padding: 0 }}
+                        onClick={() => deleteTag(t.id)}
+                      >
+                        x
+                      </button>
+                    </>
+                  )}
                 </div>
               ))}
               {tags.length === 0 && <p className="topic-meta">Ziadne tagy.</p>}
@@ -205,6 +314,11 @@ export default function ManageMeta() {
                 value={newBadge.name}
                 onChange={(e) => setNewBadge((p) => ({ ...p, name: e.target.value }))}
                 placeholder="Nazov badge"
+              />
+              <input
+                value={newBadge.description}
+                onChange={(e) => setNewBadge((p) => ({ ...p, description: e.target.value }))}
+                placeholder="Popis (volitelne)"
               />
               <input
                 value={newBadge.icon_url}
@@ -236,20 +350,74 @@ export default function ManageMeta() {
                   }}
                   title={b.name}
                 >
-                  {b.icon_url ? (
-                    <img src={b.icon_url} alt={b.name} style={{ width: 24, height: 24, borderRadius: 6 }} />
+                  {editingBadgeId === b.id ? (
+                    <>
+                      <input
+                        value={badgeDrafts[b.id]?.name || ""}
+                        onChange={(e) =>
+                          setBadgeDrafts((prev) => ({
+                            ...prev,
+                            [b.id]: { ...prev[b.id], name: e.target.value },
+                          }))
+                        }
+                        placeholder="Nazov"
+                        style={{ width: 120 }}
+                      />
+                      <input
+                        value={badgeDrafts[b.id]?.description || ""}
+                        onChange={(e) =>
+                          setBadgeDrafts((prev) => ({
+                            ...prev,
+                            [b.id]: { ...prev[b.id], description: e.target.value },
+                          }))
+                        }
+                        placeholder="Popis"
+                        style={{ width: 140 }}
+                      />
+                      <input
+                        value={badgeDrafts[b.id]?.icon_url || ""}
+                        onChange={(e) =>
+                          setBadgeDrafts((prev) => ({
+                            ...prev,
+                            [b.id]: { ...prev[b.id], icon_url: e.target.value },
+                          }))
+                        }
+                        placeholder="Ikona URL"
+                        style={{ width: 140 }}
+                      />
+                      <button type="button" className="btn-link" style={{ padding: 0 }} onClick={() => saveBadge(b.id)}>
+                        save
+                      </button>
+                      <button type="button" className="btn-link" style={{ padding: 0 }} onClick={() => setEditingBadgeId(null)}>
+                        cancel
+                      </button>
+                    </>
                   ) : (
-                    <span style={{ width: 24, height: 24, borderRadius: 6, background: "var(--chip-bg)" }} />
+                    <>
+                      {b.icon_url ? (
+                        <img src={b.icon_url} alt={b.name} style={{ width: 24, height: 24, borderRadius: 6 }} />
+                      ) : (
+                        <span style={{ width: 24, height: 24, borderRadius: 6, background: "var(--chip-bg)" }} />
+                      )}
+                      <span>{b.name}</span>
+                      <button
+                        type="button"
+                        className="btn-link"
+                        style={{ padding: 0 }}
+                        onClick={() => startEditBadge(b)}
+                      >
+                        edit
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-link"
+                        style={{ padding: 0 }}
+                        onClick={() => deleteBadge(b.id)}
+                      >
+                        x
+                      </button>
+                    </>
                   )}
-                  <span>{b.name}</span>
-                  <button
-                    type="button"
-                    className="btn-link"
-                    style={{ padding: 0 }}
-                    onClick={() => deleteBadge(b.id)}
-                  >
-                    x
-                  </button>
                 </div>
               ))}
               {badges.length === 0 && <p className="topic-meta">Ziadne badge.</p>}
@@ -282,16 +450,70 @@ export default function ManageMeta() {
 
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {categories.map((c) => (
-                <div key={c.id} className="tag-pill" style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>{c.name}</span>
-                  <button
-                    type="button"
-                    className="btn-link"
-                    style={{ padding: 0 }}
-                    onClick={() => deleteCategory(c.id)}
-                  >
-                    x
-                  </button>
+                <div key={c.id} className="tag-pill" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  {editingCategoryId === c.id ? (
+                    <>
+                      <input
+                        value={categoryDrafts[c.id]?.name || ""}
+                        onChange={(e) =>
+                          setCategoryDrafts((prev) => ({
+                            ...prev,
+                            [c.id]: { ...prev[c.id], name: e.target.value },
+                          }))
+                        }
+                        placeholder="Nazov"
+                        style={{ width: 140 }}
+                      />
+                      <input
+                        value={categoryDrafts[c.id]?.description || ""}
+                        onChange={(e) =>
+                          setCategoryDrafts((prev) => ({
+                            ...prev,
+                            [c.id]: { ...prev[c.id], description: e.target.value },
+                          }))
+                        }
+                        placeholder="Popis"
+                        style={{ width: 160 }}
+                      />
+                      <input
+                        value={categoryDrafts[c.id]?.sort_order ?? 0}
+                        onChange={(e) =>
+                          setCategoryDrafts((prev) => ({
+                            ...prev,
+                            [c.id]: { ...prev[c.id], sort_order: e.target.value },
+                          }))
+                        }
+                        placeholder="Order"
+                        style={{ width: 80 }}
+                      />
+                      <button type="button" className="btn-link" style={{ padding: 0 }} onClick={() => saveCategory(c.id)}>
+                        save
+                      </button>
+                      <button type="button" className="btn-link" style={{ padding: 0 }} onClick={() => setEditingCategoryId(null)}>
+                        cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span>{c.name}</span>
+                      <button
+                        type="button"
+                        className="btn-link"
+                        style={{ padding: 0 }}
+                        onClick={() => startEditCategory(c)}
+                      >
+                        edit
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-link"
+                        style={{ padding: 0 }}
+                        onClick={() => deleteCategory(c.id)}
+                      >
+                        x
+                      </button>
+                    </>
+                  )}
                 </div>
               ))}
               {categories.length === 0 && <p className="topic-meta">Ziadne kategorie.</p>}

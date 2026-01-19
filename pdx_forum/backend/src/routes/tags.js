@@ -19,11 +19,15 @@ router.post("/", authRequired, blockBanned, requirePermission("can_manage_tags")
   if (!name || !name.trim()) {
     return res.status(400).json({ message: "Missing tag name" });
   }
+  const cleanName = name.trim();
+  if (cleanName.length < 2 || cleanName.length > 30) {
+    return res.status(400).json({ message: "Tag name length is invalid" });
+  }
 
   try {
     const result = await query(
       "INSERT INTO tags (name) VALUES ($1) RETURNING id, name",
-      [name.trim()]
+      [cleanName]
     );
 
     await query(
@@ -43,6 +47,10 @@ router.patch("/:id", authRequired, blockBanned, requirePermission("can_manage_ta
   if (!name || !name.trim()) {
     return res.status(400).json({ message: "Missing tag name" });
   }
+  const cleanName = name.trim();
+  if (cleanName.length < 2 || cleanName.length > 30) {
+    return res.status(400).json({ message: "Tag name length is invalid" });
+  }
 
   try {
     const oldRes = await query("SELECT name FROM tags WHERE id = $1", [req.params.id]);
@@ -50,7 +58,7 @@ router.patch("/:id", authRequired, blockBanned, requirePermission("can_manage_ta
 
     const result = await query(
       "UPDATE tags SET name = $1 WHERE id = $2 RETURNING id, name",
-      [name.trim(), req.params.id]
+      [cleanName, req.params.id]
     );
 
     await query(

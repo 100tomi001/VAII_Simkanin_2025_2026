@@ -1,8 +1,10 @@
-export default function Tag({ label, active, onClick }) {
+export default function Tag({ label, active, onClick, title }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
+      aria-pressed={!!active}
       className="tag-pill"
       style={{
         background: active ? "var(--accent)" : "var(--chip-bg)",

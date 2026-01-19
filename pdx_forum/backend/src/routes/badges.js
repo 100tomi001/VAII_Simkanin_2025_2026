@@ -11,9 +11,22 @@ router.get("/", async (_req, res) => {
 
 router.post("/", authRequired, blockBanned, requirePermission("can_manage_tags"), async (req, res) => {
   const { name, description, icon_url } = req.body;
+  if (!name || !name.trim()) {
+    return res.status(400).json({ message: "Missing badge name" });
+  }
+  const cleanName = name.trim();
+  if (cleanName.length < 2 || cleanName.length > 50) {
+    return res.status(400).json({ message: "Badge name length is invalid" });
+  }
+  if (description && description.length > 200) {
+    return res.status(400).json({ message: "Badge description too long" });
+  }
+  if (icon_url && icon_url.length > 500) {
+    return res.status(400).json({ message: "Icon URL too long" });
+  }
   const r = await query(
     "INSERT INTO badges (name, description, icon_url) VALUES ($1,$2,$3) RETURNING *",
-    [name, description || null, icon_url || null]
+    [cleanName, description || null, icon_url || null]
   );
   res.status(201).json(r.rows[0]);
 });
@@ -44,6 +57,38 @@ router.delete("/:id", authRequired, blockBanned, requirePermission("can_manage_t
   } catch (err) {
     console.error("DELETE BADGE ERROR:", err);
     res.status(500).json({ message: "Server error deleting badge" });
+  }
+});
+
+router.patch("/:id", authRequired, blockBanned, requirePermission("can_manage_tags"), async (req, res) => {
+  const { name, description, icon_url } = req.body;
+  if (name !== undefined && !name.trim()) {
+    return res.status(400).json({ message: "Missing badge name" });
+  }
+  if (name && (name.trim().length < 2 || name.trim().length > 50)) {
+    return res.status(400).json({ message: "Badge name length is invalid" });
+  }
+  if (description && description.length > 200) {
+    return res.status(400).json({ message: "Badge description too long" });
+  }
+  if (icon_url && icon_url.length > 500) {
+    return res.status(400).json({ message: "Icon URL too long" });
+  }
+  try {
+    const r = await query(
+      `UPDATE badges
+       SET name = COALESCE($1, name),
+           description = COALESCE($2, description),
+           icon_url = COALESCE($3, icon_url)
+       WHERE id = $4
+       RETURNING *`,
+      [name?.trim(), description, icon_url, req.params.id]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ message: "Badge not found" });
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error("UPDATE BADGE ERROR:", err);
+    res.status(500).json({ message: "Server error updating badge" });
   }
 });
 

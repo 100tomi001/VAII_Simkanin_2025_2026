@@ -1,7 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
+
+const slugify = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)+/g, "");
 
 export default function WikiArticle() {
   const { slug } = useParams();
@@ -11,6 +17,9 @@ export default function WikiArticle() {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [canEditWiki, setCanEditWiki] = useState(false);
+  const [search, setSearch] = useState("");
+  const hasSearch = !!search.trim();
+  const searchInputRef = useRef(null);
 
   const isEditor = user && (user.role === "admin" || canEditWiki);
 
@@ -36,6 +45,23 @@ export default function WikiArticle() {
   }, [user]);
 
   useEffect(() => {
+    const handler = (e) => {
+      const tag = e.target?.tagName?.toLowerCase();
+      const isTyping =
+        tag === "input" ||
+        tag === "textarea" ||
+        tag === "select" ||
+        e.target?.isContentEditable;
+      if (!isTyping && e.key === "/") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  useEffect(() => {
     const load = async () => {
       try {
         const [res, cats] = await Promise.all([
@@ -53,27 +79,31 @@ export default function WikiArticle() {
     load();
   }, [slug]);
 
-  const toc = useMemo(() => {
+  const blocks = useMemo(() => {
     if (!article?.content) return [];
-    return (article.content || []).filter((b) => b.type === "heading");
+    return (article.content || []).map((b, idx) => ({ ...b, _idx: idx }));
   }, [article]);
+
+  const toc = useMemo(() => {
+    return blocks.filter((b) => b.type === "heading");
+  }, [blocks]);
 
   const infobox = useMemo(() => {
-    if (!article?.content) return null;
-    return (article.content || []).find((b) => b.type === "infobox") || null;
-  }, [article]);
+    return blocks.find((b) => b.type === "infobox") || null;
+  }, [blocks]);
 
   const mainBlocks = useMemo(() => {
-    if (!article?.content) return [];
-    return (article.content || []).filter((b) => b.type !== "infobox");
-  }, [article]);
+    return blocks.filter((b) => b.type !== "infobox");
+  }, [blocks]);
+
+  const headingId = (b) => `h-${slugify(b.text)}-${b._idx}`;
 
   const renderBlock = (b, idx) => {
     switch (b.type) {
       case "heading":
-        if (b.level === 1) return <h2 key={idx} id={`h-${idx}`}>{b.text}</h2>;
-        if (b.level === 2) return <h3 key={idx} id={`h-${idx}`}>{b.text}</h3>;
-        return <h4 key={idx} id={`h-${idx}`}>{b.text}</h4>;
+        if (b.level === 1) return <h2 key={idx} id={headingId(b)}>{b.text}</h2>;
+        if (b.level === 2) return <h3 key={idx} id={headingId(b)}>{b.text}</h3>;
+        return <h4 key={idx} id={headingId(b)}>{b.text}</h4>;
       case "paragraph":
         return <p key={idx}>{b.text}</p>;
       case "list":
@@ -150,6 +180,33 @@ export default function WikiArticle() {
       </div>
 
       <div className="card wiki-card wiki-article">
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <input
+            ref={searchInputRef}
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && search.trim()) {
+                navigate(`/wiki?q=${encodeURIComponent(search.trim())}`);
+              }
+              if (e.key === "Escape" && search) setSearch("");
+            }}
+            placeholder="Search wiki..."
+            style={{ flex: 1 }}
+          />
+          <button
+            className="btn-secondary"
+            type="button"
+            disabled={!hasSearch}
+            onClick={() => {
+              if (search.trim()) navigate(`/wiki?q=${encodeURIComponent(search.trim())}`);
+            }}
+          >
+            Search
+          </button>
+        </div>
+        <div className="filter-hint">Tip: Press “/” to focus search. Esc clears search.</div>
         <h1 className="page-title wiki-title">{article.title}</h1>
         {article.status !== "published" && (
           <div className="wiki-alert" style={{ marginTop: 6 }}>
@@ -203,8 +260,8 @@ export default function WikiArticle() {
           <div className="wiki-toc">
             <ul style={{ display: "flex", flexDirection: "column", gap: 4, margin: 0, paddingLeft: 18 }}>
               {toc.map((h, i) => (
-                <li key={i}>
-                  <a href={`#h-${i}`}>{h.text}</a>
+                <li key={i} style={{ marginLeft: h.level === 2 ? 10 : h.level >= 3 ? 18 : 0 }}>
+                  <a href={`#${headingId(h)}`}>{h.text}</a>
                 </li>
               ))}
             </ul>

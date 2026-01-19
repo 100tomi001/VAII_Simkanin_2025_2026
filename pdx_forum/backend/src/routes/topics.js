@@ -5,17 +5,58 @@ import { authRequired, blockBanned, requirePermission } from "../middleware/auth
 const router = express.Router();
 
 router.get("/", async (req, res) => {
-  const { category } = req.query;
+  const { category, q, tag, sort = "home", page = "1", pageSize = "20" } = req.query;
+  const pageNum = Math.max(1, Number(page) || 1);
+  const limit = Math.min(50, Math.max(5, Number(pageSize) || 20));
+  const offset = (pageNum - 1) * limit;
+
   try {
+    const cond = [];
     const params = [];
-    let where = "";
+
     if (category) {
       params.push(category);
-      where = `WHERE c.slug = $${params.length}`;
+      if (/^\d+$/.test(String(category))) {
+        cond.push(`c.id = $${params.length}`);
+      } else {
+        cond.push(`c.slug = $${params.length}`);
+      }
     }
 
-    const result = await query(
-      `
+    if (q) {
+      params.push(q);
+      cond.push(`t.title ILIKE '%'||$${params.length}||'%'`);
+    }
+
+    if (tag) {
+      params.push(tag);
+      if (/^\d+$/.test(String(tag))) {
+        cond.push(
+          `EXISTS (
+            SELECT 1 FROM topic_tags ttf
+            JOIN tags tgf ON tgf.id = ttf.tag_id
+            WHERE ttf.topic_id = t.id AND tgf.id = $${params.length}
+          )`
+        );
+      } else {
+        cond.push(
+          `EXISTS (
+            SELECT 1 FROM topic_tags ttf
+            JOIN tags tgf ON tgf.id = ttf.tag_id
+            WHERE ttf.topic_id = t.id AND tgf.name = $${params.length}
+          )`
+        );
+      }
+    }
+
+    const where = cond.length ? "WHERE " + cond.join(" AND ") : "";
+
+    let orderBy = "t.is_sticky DESC, last_activity DESC";
+    if (sort === "trending") orderBy = "replies DESC, last_activity DESC";
+    if (sort === "latest") orderBy = "t.created_at DESC";
+    if (sort === "new") orderBy = "last_activity DESC";
+
+    const listSql = `
       SELECT 
         t.id,
         t.title,
@@ -27,7 +68,7 @@ router.get("/", async (req, res) => {
         c.slug AS category_slug,
         u.id AS author_id,
         u.username AS author,
-        COUNT(p.id) AS replies,
+        COUNT(DISTINCT p.id) AS replies,
         COALESCE(MAX(p.created_at), t.created_at) AS last_activity,
         COALESCE(
           json_agg(DISTINCT jsonb_build_object('id', tg.id, 'name', tg.name))
@@ -42,12 +83,33 @@ router.get("/", async (req, res) => {
       LEFT JOIN tags tg ON tg.id = tt.tag_id
       ${where}
       GROUP BY t.id, t.title, t.created_at, t.is_sticky, t.is_locked, c.id, c.name, c.slug, u.id, u.username
-      ORDER BY t.is_sticky DESC, last_activity DESC;
+      ORDER BY ${orderBy}
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `;
+
+    const listParams = [...params, limit, offset];
+    const result = await query(listSql, listParams);
+
+    const countRes = await query(
+      `
+      SELECT COUNT(DISTINCT t.id) AS total
+      FROM topics t
+      JOIN users u ON u.id = t.user_id
+      LEFT JOIN forum_categories c ON c.id = t.category_id
+      LEFT JOIN posts p ON p.topic_id = t.id
+      LEFT JOIN topic_tags tt ON tt.topic_id = t.id
+      LEFT JOIN tags tg ON tg.id = tt.tag_id
+      ${where}
       `,
       params
     );
 
-    res.json(result.rows);
+    res.json({
+      items: result.rows,
+      total: Number(countRes.rows[0]?.total || 0),
+      page: pageNum,
+      pageSize: limit,
+    });
   } catch (err) {
     console.error("TOPICS ERROR (GET /):", err);
     res.status(500).json({ message: "Server error loading topics", detail: err.message });
@@ -104,6 +166,21 @@ router.post("/", authRequired, blockBanned, async (req, res) => {
   if (!title || !content || !category_id) {
     return res.status(400).json({ message: "Missing title/content/category" });
   }
+  const cleanTitle = title.trim();
+  const cleanContent = content.trim();
+  if (cleanTitle.length < 3 || cleanTitle.length > 120) {
+    return res.status(400).json({ message: "Title length is invalid" });
+  }
+  if (cleanContent.length < 5 || cleanContent.length > 5000) {
+    return res.status(400).json({ message: "Content length is invalid" });
+  }
+  if (!Array.isArray(tagIds) || tagIds.length > 10) {
+    return res.status(400).json({ message: "Too many tags" });
+  }
+  const cleanTagIds = tagIds.map((t) => Number(t)).filter((t) => Number.isInteger(t));
+  if (cleanTagIds.length !== tagIds.length) {
+    return res.status(400).json({ message: "Invalid tag ids" });
+  }
 
   try {
     const catCheck = await query("SELECT id FROM forum_categories WHERE id = $1", [category_id]);
@@ -118,7 +195,7 @@ router.post("/", authRequired, blockBanned, async (req, res) => {
       `INSERT INTO topics (user_id, title, category_id)
        VALUES ($1, $2, $3)
        RETURNING id`,
-      [req.user.id, title, category_id]
+      [req.user.id, cleanTitle, category_id]
     );
 
     const topicId = topicRes.rows[0].id;
@@ -126,16 +203,16 @@ router.post("/", authRequired, blockBanned, async (req, res) => {
     await query(
       `INSERT INTO posts (topic_id, user_id, content)
        VALUES ($1, $2, $3)`,
-      [topicId, req.user.id, content]
+      [topicId, req.user.id, cleanContent]
     );
 
-    if (tagIds.length > 0) {
+    if (cleanTagIds.length > 0) {
       await query(
         `
         INSERT INTO topic_tags (topic_id, tag_id)
         SELECT $1, id FROM tags WHERE id = ANY($2::int[])
         `,
-        [topicId, tagIds]
+        [topicId, cleanTagIds]
       );
     }
 
