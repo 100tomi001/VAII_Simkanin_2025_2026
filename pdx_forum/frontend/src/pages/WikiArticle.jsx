@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
@@ -180,6 +180,17 @@ export default function WikiArticle() {
       </div>
 
       <div className="card wiki-card wiki-article">
+        <div className="wiki-breadcrumb">
+          <Link to="/wiki">Wiki</Link>
+          {article.category_name && (
+            <>
+              <span className="wiki-breadcrumb-sep">/</span>
+              <Link to={`/wiki?category=${article.category_slug}`}>{article.category_name}</Link>
+            </>
+          )}
+          <span className="wiki-breadcrumb-sep">/</span>
+          <span>{article.title}</span>
+        </div>
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
           <input
             ref={searchInputRef}
@@ -206,7 +217,7 @@ export default function WikiArticle() {
             Search
           </button>
         </div>
-        <div className="filter-hint">Tip: Press “/” to focus search. Esc clears search.</div>
+        <div className="filter-hint">Tip: Press / to focus search. Esc clears search.</div>
         <h1 className="page-title wiki-title">{article.title}</h1>
         {article.status !== "published" && (
           <div className="wiki-alert" style={{ marginTop: 6 }}>
@@ -271,3 +282,5 @@ export default function WikiArticle() {
     </div>
   );
 }
+
+

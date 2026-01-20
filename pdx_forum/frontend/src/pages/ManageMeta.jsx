@@ -1,9 +1,17 @@
 import { useEffect, useState } from "react";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
 
 export default function ManageMeta() {
   const { user } = useAuth();
+  const toast = useToast();
+  const TAG_MAX = 30;
+  const BADGE_NAME_MAX = 50;
+  const BADGE_DESC_MAX = 200;
+  const BADGE_ICON_MAX = 500;
+  const CAT_NAME_MAX = 50;
+  const CAT_DESC_MAX = 200;
   const [tags, setTags] = useState([]);
   const [badges, setBadges] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -17,9 +25,32 @@ export default function ManageMeta() {
   const [badgeDrafts, setBadgeDrafts] = useState({});
   const [categoryDrafts, setCategoryDrafts] = useState({});
   const [loading, setLoading] = useState(true);
+  const [auditLoading, setAuditLoading] = useState(false);
   const [error, setError] = useState("");
+  const [badgeUploading, setBadgeUploading] = useState(false);
+  const [tagAudit, setTagAudit] = useState([]);
 
   const isEditor = user && (user.role === "admin" || user.role === "moderator");
+  const cleanNewTag = newTag.trim();
+  const canAddTag = cleanNewTag.length >= 2 && cleanNewTag.length <= TAG_MAX;
+  const cleanBadgeName = newBadge.name.trim();
+  const canAddBadge =
+    cleanBadgeName.length >= 2 && cleanBadgeName.length <= BADGE_NAME_MAX;
+  const cleanCategoryName = newCategory.name.trim();
+  const canAddCategory =
+    cleanCategoryName.length >= 2 && cleanCategoryName.length <= CAT_NAME_MAX;
+
+  const loadTagAudit = async () => {
+    setAuditLoading(true);
+    try {
+      const auditRes = await api.get("/tags/audit?limit=50");
+      setTagAudit(auditRes.data);
+    } catch (auditErr) {
+      console.error(auditErr);
+    } finally {
+      setAuditLoading(false);
+    }
+  };
 
   const load = async () => {
     try {
@@ -31,6 +62,7 @@ export default function ManageMeta() {
       setTags(t.data);
       setBadges(b.data);
       setCategories(c.data);
+      await loadTagAudit();
     } catch (err) {
       console.error(err);
       setError("Nepodarilo sa nacitat meta data.");
@@ -44,12 +76,17 @@ export default function ManageMeta() {
   }, [isEditor]);
 
   const addTag = async () => {
-    if (!newTag.trim()) return;
+    if (!canAddTag) {
+      setError("Tag name must be 2-30 chars.");
+      return;
+    }
     try {
-      const res = await api.post("/tags", { name: newTag.trim() });
+      const res = await api.post("/tags", { name: cleanNewTag });
       setTags((prev) => [...prev, res.data]);
       setNewTag("");
       setError("");
+      toast.success("Tag vytvoreny.");
+      loadTagAudit();
     } catch (err) {
       console.error(err);
       const msg = err.response?.data?.message?.toLowerCase() || "";
@@ -58,6 +95,7 @@ export default function ManageMeta() {
       } else {
         setError(err.response?.data?.message || "Chyba pri vytvarani tagu.");
       }
+      toast.error("Nepodarilo sa vytvorit tag.");
     }
   };
 
@@ -67,23 +105,30 @@ export default function ManageMeta() {
       await api.delete(`/tags/${id}`);
       setTags((prev) => prev.filter((t) => t.id !== id));
       setError("");
+      toast.success("Tag zmazany.");
+      loadTagAudit();
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.message || "Chyba pri mazani tagu.");
+      toast.error("Nepodarilo sa zmazat tag.");
     }
   };
 
   const addBadge = async () => {
-    if (!newBadge.name.trim()) return;
+    if (!canAddBadge) {
+      setError("Badge name must be 2-50 chars.");
+      return;
+    }
     try {
       const res = await api.post("/badges", {
-        name: newBadge.name.trim(),
+        name: cleanBadgeName,
         description: newBadge.description?.trim() || null,
         icon_url: newBadge.icon_url || null,
       });
       setBadges((prev) => [...prev, res.data]);
       setNewBadge({ name: "", description: "", icon_url: "" });
       setError("");
+      toast.success("Badge vytvoreny.");
     } catch (err) {
       console.error(err);
       const msg = err.response?.data?.message?.toLowerCase() || "";
@@ -92,6 +137,7 @@ export default function ManageMeta() {
       } else {
         setError(err.response?.data?.message || "Chyba pri vytvarani badge.");
       }
+      toast.error("Nepodarilo sa vytvorit badge.");
     }
   };
 
@@ -101,18 +147,38 @@ export default function ManageMeta() {
       await api.delete(`/badges/${id}`);
       setBadges((prev) => prev.filter((b) => b.id !== id));
       setError("");
+      toast.success("Badge zmazany.");
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.message || "Chyba pri mazani badge.");
+      toast.error("Nepodarilo sa zmazat badge.");
     }
   };
 
-  const handleBadgeDrop = (e) => {
+  const uploadBadgeFile = async (file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      setBadgeUploading(true);
+      const res = await api.post("/uploads/badge", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      return res.data?.url;
+    } catch (err) {
+      console.error(err);
+      toast.error(err.response?.data?.message || "Upload zlyhal.");
+      return null;
+    } finally {
+      setBadgeUploading(false);
+    }
+  };
+
+  const handleBadgeDrop = async (e) => {
     e.preventDefault();
     const file = e.dataTransfer?.files?.[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    setNewBadge((p) => ({ ...p, icon_url: url }));
+    const url = await uploadBadgeFile(file);
+    if (url) setNewBadge((p) => ({ ...p, icon_url: url }));
   };
 
   const startEditTag = (t) => {
@@ -138,68 +204,92 @@ export default function ManageMeta() {
 
   const saveTag = async (id) => {
     const draft = tagDrafts[id];
-    if (!draft?.name?.trim()) return;
+    const cleanName = draft?.name?.trim();
+    if (!cleanName || cleanName.length < 2 || cleanName.length > TAG_MAX) {
+      setError("Tag name must be 2-30 chars.");
+      return;
+    }
     try {
-      const res = await api.patch(`/tags/${id}`, { name: draft.name.trim() });
+      const res = await api.patch(`/tags/${id}`, { name: cleanName });
       setTags((prev) => prev.map((t) => (t.id === id ? res.data : t)));
       setEditingTagId(null);
       setError("");
+      toast.success("Tag upraveny.");
+      loadTagAudit();
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.message || "Chyba pri uprave tagu.");
+      toast.error("Nepodarilo sa upravit tag.");
     }
   };
 
   const saveBadge = async (id) => {
     const draft = badgeDrafts[id];
-    if (!draft?.name?.trim()) return;
+    const cleanName = draft?.name?.trim();
+    if (!cleanName || cleanName.length < 2 || cleanName.length > BADGE_NAME_MAX) {
+      setError("Badge name must be 2-50 chars.");
+      return;
+    }
     try {
       const res = await api.patch(`/badges/${id}`, {
-        name: draft.name.trim(),
+        name: cleanName,
         description: draft.description?.trim() || null,
         icon_url: draft.icon_url || null,
       });
       setBadges((prev) => prev.map((b) => (b.id === id ? res.data : b)));
       setEditingBadgeId(null);
       setError("");
+      toast.success("Badge upraveny.");
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.message || "Chyba pri uprave badge.");
+      toast.error("Nepodarilo sa upravit badge.");
     }
   };
 
   const saveCategory = async (id) => {
     const draft = categoryDrafts[id] || {};
-    if (!draft.name?.trim()) return;
+    const cleanName = draft.name?.trim();
+    if (!cleanName || cleanName.length < 2 || cleanName.length > CAT_NAME_MAX) {
+      setError("Category name must be 2-50 chars.");
+      return;
+    }
     try {
       const res = await api.patch(`/categories/${id}`, {
-        name: draft.name.trim(),
+        name: cleanName,
         description: draft.description,
         sort_order: Number(draft.sort_order) || 0,
       });
       setCategories((prev) => prev.map((c) => (c.id === id ? res.data : c)));
       setEditingCategoryId(null);
       setError("");
+      toast.success("Kategoria upravena.");
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.message || "Chyba pri uprave kategorie.");
+      toast.error("Nepodarilo sa upravit kategoriu.");
     }
   };
 
   const addCategory = async () => {
-    if (!newCategory.name.trim()) return;
+    if (!canAddCategory) {
+      setError("Category name must be 2-50 chars.");
+      return;
+    }
     try {
       const res = await api.post("/categories", {
-        name: newCategory.name.trim(),
+        name: cleanCategoryName,
         description: newCategory.description,
         sort_order: Number(newCategory.sort_order) || 0,
       });
       setCategories((prev) => [...prev, res.data]);
       setNewCategory({ name: "", description: "", sort_order: 0 });
       setError("");
+      toast.success("Kategoria vytvorena.");
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.message || "Chyba pri vytvarani kategorie.");
+      toast.error("Nepodarilo sa vytvorit kategoriu.");
     }
   };
 
@@ -209,9 +299,11 @@ export default function ManageMeta() {
       await api.delete(`/categories/${id}`);
       setCategories((prev) => prev.filter((c) => c.id !== id));
       setError("");
+      toast.success("Kategoria zmazana.");
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.message || "Chyba pri mazani kategorie.");
+      toast.error("Nepodarilo sa zmazat kategoriu.");
     }
   };
 
@@ -243,10 +335,15 @@ export default function ManageMeta() {
                 value={newTag}
                 onChange={(e) => setNewTag(e.target.value)}
                 placeholder="Nazov tagu"
+                maxLength={TAG_MAX}
               />
-              <button className="btn-primary" type="button" onClick={addTag}>
+              <button className="btn-primary" type="button" onClick={addTag} disabled={!canAddTag}>
                 Pridat
               </button>
+            </div>
+            <div className="field-hint">
+              <span>2-30 chars</span>
+              <span>{newTag.length}/{TAG_MAX}</span>
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {tags.map((t) => (
@@ -262,6 +359,7 @@ export default function ManageMeta() {
                           }))
                         }
                         style={{ width: 120 }}
+                        maxLength={TAG_MAX}
                       />
                       <button type="button" className="btn-link" style={{ padding: 0 }} onClick={() => saveTag(t.id)}>
                         save
@@ -305,6 +403,7 @@ export default function ManageMeta() {
                 padding: 10,
                 borderRadius: 10,
                 marginBottom: 10,
+                opacity: badgeUploading ? 0.7 : 1,
               }}
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleBadgeDrop}
@@ -314,23 +413,31 @@ export default function ManageMeta() {
                 value={newBadge.name}
                 onChange={(e) => setNewBadge((p) => ({ ...p, name: e.target.value }))}
                 placeholder="Nazov badge"
+                maxLength={BADGE_NAME_MAX}
               />
               <input
                 value={newBadge.description}
                 onChange={(e) => setNewBadge((p) => ({ ...p, description: e.target.value }))}
                 placeholder="Popis (volitelne)"
+                maxLength={BADGE_DESC_MAX}
               />
               <input
                 value={newBadge.icon_url}
                 onChange={(e) => setNewBadge((p) => ({ ...p, icon_url: e.target.value }))}
                 placeholder="Ikona URL alebo drag&drop"
+                maxLength={BADGE_ICON_MAX}
               />
+              <div className="field-hint">
+                <span>{newBadge.name.length}/{BADGE_NAME_MAX}</span>
+                <span>{newBadge.description.length}/{BADGE_DESC_MAX}</span>
+              </div>
+              {badgeUploading && <div className="topic-meta" style={{ marginTop: 6 }}>Nahravam...</div>}
               {newBadge.icon_url && (
                 <div style={{ marginTop: 6 }}>
                   <img src={newBadge.icon_url} alt="" style={{ width: 32, height: 32, borderRadius: 6 }} />
                 </div>
               )}
-              <button className="btn-primary" type="button" style={{ marginTop: 8 }} onClick={addBadge}>
+              <button className="btn-primary" type="button" style={{ marginTop: 8 }} onClick={addBadge} disabled={!canAddBadge}>
                 Pridat badge
               </button>
             </div>
@@ -362,6 +469,7 @@ export default function ManageMeta() {
                         }
                         placeholder="Nazov"
                         style={{ width: 120 }}
+                        maxLength={BADGE_NAME_MAX}
                       />
                       <input
                         value={badgeDrafts[b.id]?.description || ""}
@@ -373,6 +481,7 @@ export default function ManageMeta() {
                         }
                         placeholder="Popis"
                         style={{ width: 140 }}
+                        maxLength={BADGE_DESC_MAX}
                       />
                       <input
                         value={badgeDrafts[b.id]?.icon_url || ""}
@@ -384,6 +493,7 @@ export default function ManageMeta() {
                         }
                         placeholder="Ikona URL"
                         style={{ width: 140 }}
+                        maxLength={BADGE_ICON_MAX}
                       />
                       <button type="button" className="btn-link" style={{ padding: 0 }} onClick={() => saveBadge(b.id)}>
                         save
@@ -431,21 +541,30 @@ export default function ManageMeta() {
                 value={newCategory.name}
                 onChange={(e) => setNewCategory((p) => ({ ...p, name: e.target.value }))}
                 placeholder="Nazov kategorie"
+                maxLength={CAT_NAME_MAX}
               />
               <input
                 value={newCategory.description}
                 onChange={(e) => setNewCategory((p) => ({ ...p, description: e.target.value }))}
                 placeholder="Popis"
+                maxLength={CAT_DESC_MAX}
               />
               <input
                 value={newCategory.sort_order}
                 onChange={(e) => setNewCategory((p) => ({ ...p, sort_order: e.target.value }))}
                 placeholder="Order"
                 style={{ width: 90 }}
+                type="number"
+                min="0"
+                max="999"
               />
-              <button className="btn-primary" type="button" onClick={addCategory}>
+              <button className="btn-primary" type="button" onClick={addCategory} disabled={!canAddCategory}>
                 Pridat
               </button>
+            </div>
+            <div className="field-hint">
+              <span>2-50 chars</span>
+              <span>{newCategory.name.length}/{CAT_NAME_MAX}</span>
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -463,6 +582,7 @@ export default function ManageMeta() {
                         }
                         placeholder="Nazov"
                         style={{ width: 140 }}
+                        maxLength={CAT_NAME_MAX}
                       />
                       <input
                         value={categoryDrafts[c.id]?.description || ""}
@@ -474,6 +594,7 @@ export default function ManageMeta() {
                         }
                         placeholder="Popis"
                         style={{ width: 160 }}
+                        maxLength={CAT_DESC_MAX}
                       />
                       <input
                         value={categoryDrafts[c.id]?.sort_order ?? 0}
@@ -485,6 +606,9 @@ export default function ManageMeta() {
                         }
                         placeholder="Order"
                         style={{ width: 80 }}
+                        type="number"
+                        min="0"
+                        max="999"
                       />
                       <button type="button" className="btn-link" style={{ padding: 0 }} onClick={() => saveCategory(c.id)}>
                         save
@@ -519,6 +643,33 @@ export default function ManageMeta() {
               {categories.length === 0 && <p className="topic-meta">Ziadne kategorie.</p>}
             </div>
           </div>
+        </div>
+      )}
+
+      {!loading && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h3>Tag audit</h3>
+            <span className="topic-meta">{tagAudit.length} entries</span>
+          </div>
+          {auditLoading ? (
+            <p className="topic-meta">Loading...</p>
+          ) : tagAudit.length === 0 ? (
+            <p className="topic-meta">No changes yet.</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+              {tagAudit.map((a) => (
+                <div key={a.id} className="tag-audit-item">
+                  <div style={{ fontWeight: 600 }}>{a.action}</div>
+                  <div className="topic-meta">
+                    {a.changed_by || "unknown"} | {new Date(a.created_at).toLocaleString("sk-SK")}
+                  </div>
+                  <div className="topic-meta">old: {a.old_name || "-"}</div>
+                  <div className="topic-meta">new: {a.new_name || "-"}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

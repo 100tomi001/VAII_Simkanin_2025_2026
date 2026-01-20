@@ -1,9 +1,14 @@
 import { useEffect, useState } from "react";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
 
 export default function ProfileEdit() {
   const { user } = useAuth();
+  const toast = useToast();
+  const NICK_MAX = 30;
+  const ABOUT_MAX = 500;
+  const AVATAR_MAX = 500;
   const [form, setForm] = useState({
     nickname: "",
     avatar_url: "",
@@ -14,6 +19,13 @@ export default function ProfileEdit() {
   const [badges, setBadges] = useState([]);
   const [myBadges, setMyBadges] = useState([]);
   const [message, setMessage] = useState("");
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const cleanNickname = form.nickname.trim();
+  const canSaveProfile =
+    cleanNickname.length >= 2 &&
+    cleanNickname.length <= NICK_MAX &&
+    form.about.length <= ABOUT_MAX &&
+    form.avatar_url.length <= AVATAR_MAX;
 
   useEffect(() => {
     const load = async () => {
@@ -45,9 +57,11 @@ export default function ProfileEdit() {
         about: form.about,
       });
       setMessage("Profil ulozeny.");
+      toast.success("Profil ulozeny.");
     } catch (err) {
       console.error(err);
       setMessage("Chyba pri ukladani profilu.");
+      toast.error("Nepodarilo sa ulozit profil.");
     }
   };
 
@@ -57,9 +71,11 @@ export default function ProfileEdit() {
       await api.post("/profile/change-password", passwords);
       setMessage("Heslo zmenene.");
       setPasswords({ currentPassword: "", newPassword: "" });
+      toast.success("Heslo zmenene.");
     } catch (err) {
       console.error(err);
       setMessage(err.response?.data?.message || "Chyba pri zmene hesla.");
+      toast.error("Nepodarilo sa zmenit heslo.");
     }
   };
 
@@ -77,15 +93,34 @@ export default function ProfileEdit() {
     } catch (err) {
       console.error(err);
       setMessage("Chyba pri zmene badge.");
+      toast.error("Nepodarilo sa zmenit badge.");
     }
   };
 
-  const handleAvatarDrop = (e) => {
+  const uploadAvatar = async (file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      setAvatarUploading(true);
+      const res = await api.post("/uploads/avatar", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      return res.data?.url;
+    } catch (err) {
+      console.error(err);
+      toast.error(err.response?.data?.message || "Upload zlyhal.");
+      return null;
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
+  const handleAvatarDrop = async (e) => {
     e.preventDefault();
     const file = e.dataTransfer?.files?.[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    setForm((prev) => ({ ...prev, avatar_url: url }));
+    const url = await uploadAvatar(file);
+    if (url) setForm((prev) => ({ ...prev, avatar_url: url }));
   };
 
   if (!user) {
@@ -111,7 +146,12 @@ export default function ProfileEdit() {
               value={form.nickname}
               onChange={(e) => setForm((p) => ({ ...p, nickname: e.target.value }))}
               placeholder="Zobrazovane meno"
+              maxLength={NICK_MAX}
             />
+            <div className="field-hint">
+              <span>2-30 chars</span>
+              <span>{form.nickname.length}/{NICK_MAX}</span>
+            </div>
           </div>
           <div>
             <label className="topic-meta">Avatar URL</label>
@@ -119,7 +159,11 @@ export default function ProfileEdit() {
               value={form.avatar_url}
               onChange={(e) => setForm((p) => ({ ...p, avatar_url: e.target.value }))}
               placeholder="https://..."
+              maxLength={AVATAR_MAX}
             />
+            <div className="field-hint">
+              <span>{form.avatar_url.length}/{AVATAR_MAX}</span>
+            </div>
           </div>
           <div>
             <label className="topic-meta">Nahlad avataru</label>
@@ -134,6 +178,7 @@ export default function ProfileEdit() {
                 alignItems: "center",
                 justifyContent: "center",
                 overflow: "hidden",
+                opacity: avatarUploading ? 0.7 : 1,
               }}
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleAvatarDrop}
@@ -147,6 +192,7 @@ export default function ProfileEdit() {
                 </span>
               )}
             </div>
+            {avatarUploading && <div className="topic-meta" style={{ marginTop: 6 }}>Nahravam...</div>}
           </div>
         </div>
 
@@ -166,10 +212,19 @@ export default function ProfileEdit() {
             value={form.about}
             onChange={(e) => setForm((p) => ({ ...p, about: e.target.value }))}
             placeholder="Kratky popis o tebe"
+            maxLength={ABOUT_MAX}
           />
+          <div className="field-hint">
+            <span>{form.about.length}/{ABOUT_MAX}</span>
+          </div>
         </div>
 
-        <button className="btn-primary" style={{ marginTop: 12 }} onClick={saveProfile}>
+        <button
+          className="btn-primary"
+          style={{ marginTop: 12 }}
+          onClick={saveProfile}
+          disabled={!canSaveProfile}
+        >
           Ulozit profil
         </button>
 

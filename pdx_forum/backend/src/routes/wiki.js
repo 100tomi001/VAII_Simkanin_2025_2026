@@ -152,9 +152,12 @@ router.get("/recent/changes", async (req, res) => {
         a.title,
         a.slug,
         h.created_at,
-        u.username AS changed_by
+        u.username AS changed_by,
+        c.name AS category_name,
+        c.slug AS category_slug
       FROM wiki_article_history h
       JOIN wiki_articles a ON a.id = h.article_id
+      LEFT JOIN wiki_categories c ON c.id = a.category_id
       LEFT JOIN users u ON u.id = h.changed_by
       ORDER BY h.created_at DESC
       LIMIT $1

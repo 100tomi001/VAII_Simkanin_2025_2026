@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
 
 const slugify = (text) =>
   String(text || "")
@@ -14,10 +15,12 @@ const isImageIcon = (icon) =>
 
 export default function ManageReactions() {
   const { user } = useAuth();
+  const toast = useToast();
   const [reactions, setReactions] = useState([]);
   const [newReaction, setNewReaction] = useState({ key: "", label: "", icon: "" });
   const [canManage, setCanManage] = useState(false);
   const [error, setError] = useState("");
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -57,9 +60,11 @@ export default function ManageReactions() {
       setReactions((prev) => [...prev, res.data]);
       setNewReaction({ key: "", label: "", icon: "" });
       setError("");
+      toast.success("Reaction created.");
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.message || "Failed to create reaction.");
+      toast.error("Failed to create reaction.");
     }
   };
 
@@ -73,18 +78,38 @@ export default function ManageReactions() {
       await api.delete(`/reactions/${r.id}`);
       setReactions((prev) => prev.filter((x) => x.id !== r.id));
       setError("");
+      toast.success("Reaction deleted.");
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.message || "Failed to delete reaction.");
+      toast.error("Failed to delete reaction.");
     }
   };
 
-  const handleDrop = (e) => {
+  const uploadReactionFile = async (file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      setUploading(true);
+      const res = await api.post("/uploads/reaction", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      return res.data?.url;
+    } catch (err) {
+      console.error(err);
+      toast.error(err.response?.data?.message || "Upload failed.");
+      return null;
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDrop = async (e) => {
     e.preventDefault();
     const file = e.dataTransfer?.files?.[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    setNewReaction((p) => ({ ...p, icon: url }));
+    const url = await uploadReactionFile(file);
+    if (url) setNewReaction((p) => ({ ...p, icon: url }));
   };
 
   return (
@@ -133,6 +158,7 @@ export default function ManageReactions() {
               )}
             </div>
           )}
+          {uploading && <div className="topic-meta" style={{ marginTop: 6 }}>Uploading...</div>}
         </div>
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>

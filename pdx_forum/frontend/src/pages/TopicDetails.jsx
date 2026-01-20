@@ -54,6 +54,11 @@ export default function TopicDetail() {
   const [tagAudit, setTagAudit] = useState([]);
   const [badges, setBadges] = useState([]);
   const [expandedReplies, setExpandedReplies] = useState({});
+  const [reportTarget, setReportTarget] = useState(null);
+  const [reportReason, setReportReason] = useState("");
+  const [reportMessage, setReportMessage] = useState("");
+  const [commentPage, setCommentPage] = useState(1);
+  const [commentPageSize, setCommentPageSize] = useState(10);
 
   const [reactions, setReactions] = useState([]);
   const [postReactions, setPostReactions] = useState({});
@@ -106,6 +111,10 @@ export default function TopicDetail() {
 
     load();
   }, [topicId]);
+
+  useEffect(() => {
+    setCommentPage(1);
+  }, [commentPageSize, topicId]);
 
   useEffect(() => {
     const loadPerms = async () => {
@@ -402,8 +411,129 @@ export default function TopicDetail() {
     return roots;
   }, [posts]);
 
+  const totalThreads = thread.length;
+  const totalComments = posts.length;
+  const totalCommentPages = Math.max(1, Math.ceil(totalThreads / commentPageSize));
+  const pagedThread = useMemo(() => {
+    const start = (commentPage - 1) * commentPageSize;
+    return thread.slice(start, start + commentPageSize);
+  }, [thread, commentPage, commentPageSize]);
+
+  useEffect(() => {
+    if (commentPage > totalCommentPages) {
+      setCommentPage(totalCommentPages);
+    }
+  }, [commentPage, totalCommentPages]);
+
   const toggleReplies = (postId) => {
     setExpandedReplies((prev) => ({ ...prev, [postId]: !prev[postId] }));
+  };
+
+  const openReport = (target) => {
+    if (!user) {
+      setPostingError("Login required to report.");
+      return;
+    }
+    setReportMessage("");
+    setReportReason("");
+    setReportTarget(target);
+  };
+
+  const submitReport = async () => {
+    if (!user) {
+      setPostingError("Login required to report.");
+      return;
+    }
+    const cleanReason = reportReason.trim();
+    if (cleanReason.length < 3) {
+      setReportMessage("Reason too short.");
+      return;
+    }
+    if (!reportTarget) return;
+    const payload = { reason: cleanReason };
+    if (reportTarget.type === "post") {
+      payload.postId = reportTarget.postId;
+    } else if (reportTarget.type === "user") {
+      payload.userId = reportTarget.userId;
+      if (reportTarget.contextPostId) payload.contextPostId = reportTarget.contextPostId;
+    }
+
+    try {
+      await api.post("/reports", payload);
+      setReportMessage("Report sent.");
+      setReportTarget(null);
+      setReportReason("");
+    } catch (err) {
+      console.error(err);
+      setReportMessage("Failed to send report.");
+    }
+  };
+
+  const openReplyForm = (postId) => {
+    if (topic.is_locked) {
+      setPostingError("Topic is locked.");
+      return;
+    }
+    setReplyToId(postId);
+    setNewPost("");
+  };
+
+  const cancelReplyForm = () => {
+    setReplyToId(null);
+    setNewPost("");
+  };
+
+  const renderReplyForm = () => (
+    <form onSubmit={handleAddPost} style={{ marginTop: 8 }}>
+      <textarea
+        rows={3}
+        value={newPost}
+        onChange={(e) => setNewPost(e.target.value)}
+        style={{
+          background: "var(--input-bg)",
+          border: "1px solid var(--card-border)",
+          borderRadius: 10,
+          padding: "8px 10px",
+          color: "var(--text)",
+          resize: "vertical",
+          width: "100%",
+        }}
+        placeholder="Write a reply..."
+      />
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <button type="submit" className="btn-primary">
+          Send
+        </button>
+        <button type="button" className="btn-secondary" onClick={cancelReplyForm}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+
+  const renderCommentPagination = () => {
+    if (totalCommentPages <= 1) return null;
+    return (
+      <div className="pagination" style={{ marginTop: 12 }}>
+        <button
+          className="btn-secondary"
+          disabled={commentPage <= 1}
+          onClick={() => setCommentPage((p) => Math.max(1, p - 1))}
+        >
+          Prev
+        </button>
+        <div className="topic-meta">
+          Page {commentPage} / {totalCommentPages}
+        </div>
+        <button
+          className="btn-secondary"
+          disabled={commentPage >= totalCommentPages}
+          onClick={() => setCommentPage((p) => Math.min(totalCommentPages, p + 1))}
+        >
+          Next
+        </button>
+      </div>
+    );
   };
 
   const renderProfileSide = (p) => {
@@ -605,7 +735,7 @@ export default function TopicDetail() {
                   <button
                     type="button"
                     className="btn-link"
-                    onClick={() => setReplyToId(p.id)}
+                    onClick={() => openReplyForm(p.id)}
                     style={{ padding: 0, fontSize: 13 }}
                   >
                     Reply
@@ -621,6 +751,29 @@ export default function TopicDetail() {
                       Edit
                     </button>
                   )}
+
+                  {!p.is_deleted && user && (
+                    <button
+                      type="button"
+                      onClick={() => openReport({ type: "post", postId: p.id })}
+                      className="btn-link"
+                      style={{ padding: 0, fontSize: 13 }}
+                    >
+                      Report post
+                    </button>
+                  )}
+                  {!p.is_deleted && user && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openReport({ type: "user", userId: p.author_id, contextPostId: p.id })
+                      }
+                      className="btn-link"
+                      style={{ padding: 0, fontSize: 13 }}
+                    >
+                      Report user
+                    </button>
+                  )}
                 </div>
 
                 {hasReplies && (
@@ -632,6 +785,38 @@ export default function TopicDetail() {
                   >
                     {isExpanded ? "Hide replies" : `Show replies (${p.children.length})`}
                   </button>
+                )}
+                {(reportTarget?.type === "post" && reportTarget.postId === p.id) ||
+                (reportTarget?.type === "user" && reportTarget.contextPostId === p.id) ? (
+                  <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div className="topic-meta">
+                      {reportTarget.type === "post"
+                        ? `Reporting post #${p.id}`
+                        : `Reporting user ${p.author_nickname || p.author_username}`}
+                    </div>
+                    <textarea
+                      rows={2}
+                      value={reportReason}
+                      onChange={(e) => setReportReason(e.target.value)}
+                      placeholder="Reason for report"
+                    />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button type="button" className="btn-secondary" onClick={submitReport}>
+                        Send report
+                      </button>
+                      <button type="button" className="btn-link" onClick={() => setReportTarget(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                    {reportMessage && <div className="topic-meta">{reportMessage}</div>}
+                  </div>
+                ) : null}
+
+                {replyToId === p.id && (
+                  <div style={{ marginTop: 8 }}>
+                    <div className="topic-meta">Replying to #{p.id}</div>
+                    {renderReplyForm()}
+                  </div>
                 )}
               </>
             )}
@@ -770,54 +955,118 @@ export default function TopicDetail() {
                       </div>
                       <div>{initialPost.content}</div>
                       {renderReactionBar(topicReactions, (rid) => toggleTopicReaction(rid))}
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          type="button"
+                          className="btn-link"
+                          style={{ padding: 0, fontSize: 13 }}
+                          onClick={() => openReplyForm(initialPost.id)}
+                        >
+                          Reply
+                        </button>
+                        {user && (
+                          <button
+                            type="button"
+                            className="btn-link"
+                            style={{ padding: 0, fontSize: 13 }}
+                            onClick={() => openReport({ type: "post", postId: initialPost.id })}
+                          >
+                            Report post
+                          </button>
+                        )}
+                        {user && (
+                          <button
+                            type="button"
+                            className="btn-link"
+                            style={{ padding: 0, fontSize: 13 }}
+                            onClick={() =>
+                              openReport({
+                                type: "user",
+                                userId: initialPost.author_id,
+                                contextPostId: initialPost.id,
+                              })
+                            }
+                          >
+                            Report user
+                          </button>
+                        )}
+                      </div>
+                      {(reportTarget?.type === "post" && reportTarget.postId === initialPost.id) ||
+                      (reportTarget?.type === "user" && reportTarget.contextPostId === initialPost.id) ? (
+                        <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                          <div className="topic-meta">
+                            {reportTarget.type === "post"
+                              ? `Reporting post #${initialPost.id}`
+                              : `Reporting user ${initialPost.author_nickname || initialPost.author_username}`}
+                          </div>
+                          <textarea
+                            rows={2}
+                            value={reportReason}
+                            onChange={(e) => setReportReason(e.target.value)}
+                            placeholder="Reason for report"
+                          />
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <button type="button" className="btn-secondary" onClick={submitReport}>
+                              Send report
+                            </button>
+                            <button type="button" className="btn-link" onClick={() => setReportTarget(null)}>
+                              Cancel
+                            </button>
+                          </div>
+                          {reportMessage && <div className="topic-meta">{reportMessage}</div>}
+                        </div>
+                      ) : null}
+                      {replyToId === initialPost.id && (
+                        <div style={{ marginTop: 8 }}>
+                          <div className="topic-meta">Replying to #{initialPost.id}</div>
+                          {renderReplyForm()}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
               )}
 
               <div className="card">
-                <h2>Comments</h2>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                  <div>
+                    <h2>Comments</h2>
+                    <div className="topic-meta">
+                      {totalComments} comments | {totalThreads} threads
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span className="topic-meta">Threads per page</span>
+                    <select
+                      value={commentPageSize}
+                      onChange={(e) => setCommentPageSize(Number(e.target.value))}
+                    >
+                      {[5, 10, 15, 20].map((size) => (
+                        <option key={size} value={size}>
+                          {size}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
                 {thread.length === 0 && (
                   <p className="topic-meta">No comments yet.</p>
                 )}
                 <div style={{ marginTop: 12 }}>
-                  {thread.map((p) => renderPost(p))}
+                  {pagedThread.map((p) => renderPost(p))}
                 </div>
+                {renderCommentPagination()}
               </div>
 
               <div className="card">
                 <h3>Reply</h3>
-
-                {replyToId && (
-                  <div style={{ marginBottom: 8, color: "var(--accent)" }}>
-                    Replying to #{replyToId}{" "}
-                    <button className="btn-link" onClick={() => setReplyToId(null)}>cancel</button>
-                  </div>
-                )}
-
                 {topic.is_locked ? (
                   <p className="topic-meta">Topic is locked.</p>
+                ) : replyToId ? (
+                  <p className="topic-meta">Reply form is open above.</p>
                 ) : (
-                  <form onSubmit={handleAddPost}>
-                    <textarea
-                      rows={4}
-                      value={newPost}
-                      onChange={(e) => setNewPost(e.target.value)}
-                      style={{
-                        background: "var(--input-bg)",
-                        border: "1px solid var(--card-border)",
-                        borderRadius: 10,
-                        padding: "8px 10px",
-                        color: "var(--text)",
-                        resize: "vertical",
-                      }}
-                      placeholder="Write a reply..."
-                    />
-
-                    <button type="submit" className="btn-primary" style={{ marginTop: 8 }}>
-                      Send
-                    </button>
-                  </form>
+                  renderReplyForm()
                 )}
 
                 {postingError && <p style={{ color: "salmon", marginTop: 8 }}>{postingError}</p>}

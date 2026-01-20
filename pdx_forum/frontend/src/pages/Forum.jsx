@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import api from "../api/axios";
 import Tag from "../components/Tag";
@@ -10,7 +10,8 @@ export default function Forum() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("Home");
-  const [selectedTag, setSelectedTag] = useState("");
+  const [selectedTags, setSelectedTags] = useState([]);
+  const [tagMode, setTagMode] = useState("or");
   const [selectedCategory, setSelectedCategory] = useState("");
   const [query, setQuery] = useState("");
   const [topics, setTopics] = useState([]);
@@ -23,14 +24,31 @@ export default function Forum() {
   const [page, setPage] = useState(1);
   const pageSize = 15;
   const searchInputRef = useRef(null);
-  const hasFilters = query || selectedTag || selectedCategory;
+  const hasFilters = query || selectedTags.length > 0 || selectedCategory;
   const selectedCategoryLabel =
     categories.find((c) => c.slug === selectedCategory)?.name || selectedCategory;
   const filterParts = [];
   if (query) filterParts.push(`search "${query}"`);
   if (selectedCategoryLabel) filterParts.push(`category "${selectedCategoryLabel}"`);
-  if (selectedTag) filterParts.push(`tag "${selectedTag}"`);
+  if (selectedTags.length > 0) {
+    const modeLabel = tagMode === "and" ? "all" : "any";
+    filterParts.push(`tags (${modeLabel}) "${selectedTags.join(", ")}"`);
+  }
   const filterSummary = filterParts.join(", ");
+  const highlight = (text, q) => {
+    const safeText = String(text || "");
+    const safeQuery = String(q || "").trim();
+    if (!safeQuery || safeQuery.length < 2) return safeText;
+    const escaped = safeQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const parts = safeText.split(new RegExp(`(${escaped})`, "ig"));
+    return parts.map((part, i) =>
+      part.toLowerCase() === safeQuery.toLowerCase() ? (
+        <mark key={i} className="search-highlight">{part}</mark>
+      ) : (
+        part
+      )
+    );
+  };
 
   useEffect(() => {
     const handler = (e) => {
@@ -84,7 +102,8 @@ export default function Forum() {
         const res = await api.get("/topics", {
           params: {
             q: query || undefined,
-            tag: selectedTag || undefined,
+            tags: selectedTags.length > 0 ? selectedTags.join(",") : undefined,
+            tagMode: selectedTags.length > 0 ? tagMode : undefined,
             category: selectedCategory || undefined,
             sort: sortKey,
             page,
@@ -102,7 +121,7 @@ export default function Forum() {
       }
     };
     loadTopics();
-  }, [query, selectedTag, selectedCategory, sortKey, page]);
+  }, [query, selectedTags, tagMode, selectedCategory, sortKey, page]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -112,7 +131,9 @@ export default function Forum() {
 
   const handleTagClick = (tagName) => {
     setPage(1);
-    setSelectedTag((prev) => (prev === tagName ? "" : tagName));
+    setSelectedTags((prev) =>
+      prev.includes(tagName) ? prev.filter((t) => t !== tagName) : [...prev, tagName]
+    );
   };
 
   const handleCategoryClick = (slug) => {
@@ -127,7 +148,7 @@ export default function Forum() {
 
   const clearFilters = () => {
     setQuery("");
-    setSelectedTag("");
+    setSelectedTags([]);
     setSelectedCategory("");
     setPage(1);
   };
@@ -254,7 +275,7 @@ export default function Forum() {
               </button>
             )}
           </div>
-          <div className="filter-hint">Tip: Press “/” to focus search. Esc clears search.</div>
+          <div className="filter-hint">Tip: Press / to focus search. Esc clears search.</div>
 
           {hasFilters && (
             <div className="filter-chips">
@@ -270,10 +291,23 @@ export default function Forum() {
                   <button type="button" onClick={() => { setSelectedCategory(""); setPage(1); }}>x</button>
                 </span>
               )}
-              {selectedTag && (
+              {selectedTags.map((tagName) => (
+                <span key={tagName} className="filter-chip">
+                  Tag: {tagName}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedTags((prev) => prev.filter((t) => t !== tagName));
+                      setPage(1);
+                    }}
+                  >
+                    x
+                  </button>
+                </span>
+              ))}
+              {selectedTags.length > 1 && (
                 <span className="filter-chip">
-                  Tag: {selectedTag}
-                  <button type="button" onClick={() => { setSelectedTag(""); setPage(1); }}>x</button>
+                  Match: {tagMode === "and" ? "all" : "any"}
                 </span>
               )}
             </div>
@@ -305,6 +339,37 @@ export default function Forum() {
                 ))
               )}
             </div>
+            {selectedTags.length > 1 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span className="topic-meta">Tag match</span>
+                <button
+                  type="button"
+                  className="tag-pill"
+                  aria-pressed={tagMode === "or"}
+                  onClick={() => setTagMode("or")}
+                  style={{
+                    background: tagMode === "or" ? "var(--accent)" : "var(--chip-bg)",
+                    borderColor: tagMode === "or" ? "var(--accent)" : "var(--chip-border)",
+                    color: tagMode === "or" ? "#fff" : "var(--text)",
+                  }}
+                >
+                  Any
+                </button>
+                <button
+                  type="button"
+                  className="tag-pill"
+                  aria-pressed={tagMode === "and"}
+                  onClick={() => setTagMode("and")}
+                  style={{
+                    background: tagMode === "and" ? "var(--accent)" : "var(--chip-bg)",
+                    borderColor: tagMode === "and" ? "var(--accent)" : "var(--chip-border)",
+                    color: tagMode === "and" ? "#fff" : "var(--text)",
+                  }}
+                >
+                  All
+                </button>
+              </div>
+            )}
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {metaLoading ? (
                 Array.from({ length: 8 }).map((_, i) => (
@@ -316,7 +381,7 @@ export default function Forum() {
                     key={tag.id}
                     label={tag.name}
                     title={`Filter by tag: ${tag.name}`}
-                    active={selectedTag === tag.name}
+                    active={selectedTags.includes(tag.name)}
                     onClick={() => handleTagClick(tag.name)}
                   />
                 ))
@@ -347,13 +412,18 @@ export default function Forum() {
           </div>
         ) : (
           <div className="topics-list">
-            {topics.map((t) => (
-              <div key={t.id} className="topic-item" onClick={() => handleOpenTopic(t.id)}>
+            {topics.map((t) => {
+              const snippet = (t.first_post_content || "").trim();
+              const snippetText =
+                snippet.length > 140 ? `${snippet.slice(0, 140)}...` : snippet;
+
+              return (
+                <div key={t.id} className="topic-item" onClick={() => handleOpenTopic(t.id)}>
                 <div>
                   <div className="topic-title">
                     {t.is_sticky && <span style={{ marginRight: 6, color: "#fbbf24" }}>PIN</span>}
                     {t.is_locked && <span style={{ marginRight: 6, color: "#f87171" }}>LOCK</span>}
-                    {t.title}
+                    {highlight(t.title, query)}
                   </div>
                   <div className="topic-meta">
                     author{" "}
@@ -362,6 +432,7 @@ export default function Forum() {
                     </Link>{" "}
                     | {new Date(t.created_at).toLocaleDateString("sk-SK")}
                   </div>
+                  {snippetText && <div className="topic-snippet">{snippetText}</div>}
                   <div style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap" }}>
                     {t.category_name && (
                       <span className="tag-pill" style={{ borderColor: "#1d4ed8" }}>
@@ -378,11 +449,24 @@ export default function Forum() {
                 <div className="topic-meta">
                   {t.replies} replies
                   <br />
-                  last activity{" "}
-                  {new Date(t.last_activity).toLocaleDateString("sk-SK")}
+                  {t.last_author ? (
+                    <>
+                      last by{" "}
+                      <Link
+                        to={`/profile/${t.last_author_id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="author-link"
+                      >
+                        {t.last_author}
+                      </Link>
+                      <br />
+                    </>
+                  ) : null}
+                  last activity {new Date(t.last_activity).toLocaleDateString("sk-SK")}
                 </div>
               </div>
-            ))}
+              );
+            })}
 
             {topics.length === 0 && (
               <div className="empty-state">
@@ -437,3 +521,4 @@ export default function Forum() {
     </div>
   );
 }
+

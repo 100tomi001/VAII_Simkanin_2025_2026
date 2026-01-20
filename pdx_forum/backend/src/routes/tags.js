@@ -14,6 +14,27 @@ router.get("/", async (req, res) => {
   }
 });
 
+router.get("/audit", authRequired, requirePermission("can_manage_tags"), async (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 50, 200);
+  try {
+    const result = await query(
+      `
+      SELECT ta.id, ta.tag_id, ta.action, ta.old_name, ta.new_name, ta.created_at,
+             u.username AS changed_by
+      FROM tag_audit ta
+      LEFT JOIN users u ON u.id = ta.changed_by
+      ORDER BY ta.created_at DESC
+      LIMIT $1
+      `,
+      [limit]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("TAG AUDIT ERROR (GET /audit):", err);
+    res.status(500).json({ message: "Server error loading tag audit" });
+  }
+});
+
 router.post("/", authRequired, blockBanned, requirePermission("can_manage_tags"), async (req, res) => {
   const { name } = req.body;
   if (!name || !name.trim()) {

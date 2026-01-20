@@ -1,11 +1,11 @@
 import express from "express";
-import { query } from "../db.js";
+import { pool, query } from "../db.js";
 import { authRequired, blockBanned, requirePermission } from "../middleware/auth.js";
 
 const router = express.Router();
 
 router.get("/", async (req, res) => {
-  const { category, q, tag, sort = "home", page = "1", pageSize = "20" } = req.query;
+  const { category, q, tag, tags, tagMode, sort = "home", page = "1", pageSize = "20" } = req.query;
   const pageNum = Math.max(1, Number(page) || 1);
   const limit = Math.min(50, Math.max(5, Number(pageSize) || 20));
   const offset = (pageNum - 1) * limit;
@@ -28,24 +28,70 @@ router.get("/", async (req, res) => {
       cond.push(`t.title ILIKE '%'||$${params.length}||'%'`);
     }
 
-    if (tag) {
-      params.push(tag);
-      if (/^\d+$/.test(String(tag))) {
-        cond.push(
-          `EXISTS (
-            SELECT 1 FROM topic_tags ttf
-            JOIN tags tgf ON tgf.id = ttf.tag_id
-            WHERE ttf.topic_id = t.id AND tgf.id = $${params.length}
-          )`
-        );
+    const rawTags = [];
+    if (tag) rawTags.push(String(tag));
+    if (tags) {
+      if (Array.isArray(tags)) {
+        tags.forEach((t) => rawTags.push(String(t)));
       } else {
-        cond.push(
-          `EXISTS (
-            SELECT 1 FROM topic_tags ttf
-            JOIN tags tgf ON tgf.id = ttf.tag_id
-            WHERE ttf.topic_id = t.id AND tgf.name = $${params.length}
-          )`
-        );
+        rawTags.push(String(tags));
+      }
+    }
+    const cleanTags = rawTags
+      .flatMap((t) => t.split(","))
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const tagModeClean = String(tagMode || "or").toLowerCase() === "and" ? "and" : "or";
+
+    if (cleanTags.length > 0) {
+      if (tagModeClean === "and") {
+        cleanTags.forEach((t) => {
+          const isId = /^\d+$/.test(t);
+          params.push(isId ? Number(t) : t);
+          cond.push(
+            `EXISTS (
+              SELECT 1 FROM topic_tags ttf
+              JOIN tags tgf ON tgf.id = ttf.tag_id
+              WHERE ttf.topic_id = t.id AND ${isId ? `tgf.id = $${params.length}` : `tgf.name = $${params.length}`}
+            )`
+          );
+        });
+      } else {
+        const idTags = cleanTags.filter((t) => /^\d+$/.test(t)).map((t) => Number(t));
+        const nameTags = cleanTags.filter((t) => !/^\d+$/.test(t));
+
+        if (idTags.length > 0 && nameTags.length > 0) {
+          const idsParam = params.length + 1;
+          params.push(idTags);
+          const namesParam = params.length + 1;
+          params.push(nameTags);
+          cond.push(
+            `EXISTS (
+              SELECT 1 FROM topic_tags ttf
+              JOIN tags tgf ON tgf.id = ttf.tag_id
+              WHERE ttf.topic_id = t.id
+                AND (tgf.id = ANY($${idsParam}::int[]) OR tgf.name = ANY($${namesParam}::text[]))
+            )`
+          );
+        } else if (idTags.length > 0) {
+          params.push(idTags);
+          cond.push(
+            `EXISTS (
+              SELECT 1 FROM topic_tags ttf
+              JOIN tags tgf ON tgf.id = ttf.tag_id
+              WHERE ttf.topic_id = t.id AND tgf.id = ANY($${params.length}::int[])
+            )`
+          );
+        } else if (nameTags.length > 0) {
+          params.push(nameTags);
+          cond.push(
+            `EXISTS (
+              SELECT 1 FROM topic_tags ttf
+              JOIN tags tgf ON tgf.id = ttf.tag_id
+              WHERE ttf.topic_id = t.id AND tgf.name = ANY($${params.length}::text[])
+            )`
+          );
+        }
       }
     }
 
@@ -68,6 +114,11 @@ router.get("/", async (req, res) => {
         c.slug AS category_slug,
         u.id AS author_id,
         u.username AS author,
+        lp.id AS last_post_id,
+        lp.created_at AS last_post_created_at,
+        lu.id AS last_author_id,
+        lu.username AS last_author,
+        fp.content AS first_post_content,
         COUNT(DISTINCT p.id) AS replies,
         COALESCE(MAX(p.created_at), t.created_at) AS last_activity,
         COALESCE(
@@ -79,10 +130,29 @@ router.get("/", async (req, res) => {
       JOIN users u ON u.id = t.user_id
       LEFT JOIN forum_categories c ON c.id = t.category_id
       LEFT JOIN posts p ON p.topic_id = t.id
+      LEFT JOIN LATERAL (
+        SELECT p1.id, p1.content, p1.user_id, p1.created_at
+        FROM posts p1
+        WHERE p1.topic_id = t.id AND p1.is_deleted = false
+        ORDER BY p1.created_at DESC
+        LIMIT 1
+      ) lp ON true
+      LEFT JOIN users lu ON lu.id = lp.user_id
+      LEFT JOIN LATERAL (
+        SELECT p2.content
+        FROM posts p2
+        WHERE p2.topic_id = t.id AND p2.is_deleted = false
+        ORDER BY p2.created_at ASC
+        LIMIT 1
+      ) fp ON true
       LEFT JOIN topic_tags tt ON tt.topic_id = t.id
       LEFT JOIN tags tg ON tg.id = tt.tag_id
       ${where}
-      GROUP BY t.id, t.title, t.created_at, t.is_sticky, t.is_locked, c.id, c.name, c.slug, u.id, u.username
+      GROUP BY
+        t.id, t.title, t.created_at, t.is_sticky, t.is_locked,
+        c.id, c.name, c.slug,
+        u.id, u.username,
+        lp.id, lp.created_at, lu.id, lu.username, fp.content
       ORDER BY ${orderBy}
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
     `;
@@ -183,37 +253,52 @@ router.post("/", authRequired, blockBanned, async (req, res) => {
   }
 
   try {
-    const catCheck = await query("SELECT id FROM forum_categories WHERE id = $1", [category_id]);
-    if (catCheck.rowCount === 0) {
-      return res.status(400).json({ message: "Invalid category" });
-    }
+    const client = await pool.connect();
+    let topicId = null;
+    let authorName = "User";
+    try {
+      await client.query("BEGIN");
 
-    const userRes = await query("SELECT username, nickname FROM users WHERE id = $1", [req.user.id]);
-    const authorName = userRes.rows[0]?.nickname || userRes.rows[0]?.username || "User";
+      const catCheck = await client.query("SELECT id FROM forum_categories WHERE id = $1", [category_id]);
+      if (catCheck.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ message: "Invalid category" });
+      }
 
-    const topicRes = await query(
-      `INSERT INTO topics (user_id, title, category_id)
-       VALUES ($1, $2, $3)
-       RETURNING id`,
-      [req.user.id, cleanTitle, category_id]
-    );
+      const userRes = await client.query("SELECT username, nickname FROM users WHERE id = $1", [req.user.id]);
+      authorName = userRes.rows[0]?.nickname || userRes.rows[0]?.username || "User";
 
-    const topicId = topicRes.rows[0].id;
-
-    await query(
-      `INSERT INTO posts (topic_id, user_id, content)
-       VALUES ($1, $2, $3)`,
-      [topicId, req.user.id, cleanContent]
-    );
-
-    if (cleanTagIds.length > 0) {
-      await query(
-        `
-        INSERT INTO topic_tags (topic_id, tag_id)
-        SELECT $1, id FROM tags WHERE id = ANY($2::int[])
-        `,
-        [topicId, cleanTagIds]
+      const topicRes = await client.query(
+        `INSERT INTO topics (user_id, title, category_id)
+         VALUES ($1, $2, $3)
+         RETURNING id`,
+        [req.user.id, cleanTitle, category_id]
       );
+
+      topicId = topicRes.rows[0].id;
+
+      await client.query(
+        `INSERT INTO posts (topic_id, user_id, content)
+         VALUES ($1, $2, $3)`,
+        [topicId, req.user.id, cleanContent]
+      );
+
+      if (cleanTagIds.length > 0) {
+        await client.query(
+          `
+          INSERT INTO topic_tags (topic_id, tag_id)
+          SELECT $1, id FROM tags WHERE id = ANY($2::int[])
+          `,
+          [topicId, cleanTagIds]
+        );
+      }
+
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
     }
 
     try {
@@ -231,7 +316,7 @@ router.post("/", authRequired, blockBanned, async (req, res) => {
         FROM user_follows uf
         WHERE uf.followed_id = $3 AND uf.follower_id <> $3
         `,
-        [topicId, title, req.user.id, authorName]
+        [topicId, cleanTitle, req.user.id, authorName]
       );
     } catch (notifErr) {
       console.error("Failed to create new topic notification:", notifErr);

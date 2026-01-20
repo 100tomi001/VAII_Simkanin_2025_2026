@@ -10,6 +10,7 @@ export default function Admin() {
   const [permDraft, setPermDraft] = useState({});
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("mods"); // "mods" | "bans"
+  const [unbanTarget, setUnbanTarget] = useState(null);
   const PERMS = [
     { key: "can_manage_tags", label: "Tagy" },
     { key: "can_delete_posts", label: "Mazanie" },
@@ -102,12 +103,23 @@ export default function Admin() {
     load();
   };
 
-  const unbanUser = async (u) => {
-    const ok = window.confirm(`Odblokovat ${u.username}?`);
-    if (!ok) return;
+  const unbanUser = (u) => {
+    setUnbanTarget(u);
+  };
 
-    await api.post("/moderation/unban", { userId: u.id, reason: "admin unban" });
-    load();
+  const confirmUnban = async () => {
+    if (!unbanTarget) return;
+    try {
+      await api.post("/moderation/unban", {
+        userId: unbanTarget.id,
+        reason: "admin unban",
+      });
+      load();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setUnbanTarget(null);
+    }
   };
 
   const moderators = users.filter((u) => u.role === "moderator");
@@ -257,6 +269,54 @@ export default function Admin() {
           </div>
         )}
       </div>
+
+      {unbanTarget && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100vw",
+            height: "100vh",
+            background: "rgba(0,0,0,0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+        >
+          <div
+            style={{
+              background: "var(--chip-bg)",
+              padding: "24px",
+              borderRadius: "12px",
+              width: "90%",
+              maxWidth: "380px",
+              textAlign: "center",
+              border: "1px solid #374151",
+            }}
+          >
+            <h2 style={{ marginBottom: 12 }}>Odblokovat uzivatela?</h2>
+            <p style={{ marginBottom: 24 }}>
+              {unbanTarget.username} (id {unbanTarget.id})
+            </p>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+              <button onClick={() => setUnbanTarget(null)} className="btn-secondary">
+                Zrusit
+              </button>
+
+              <button
+                onClick={confirmUnban}
+                className="btn-primary"
+                style={{ background: "#10b981", borderColor: "#10b981" }}
+              >
+                Unban
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -4,6 +4,9 @@ import { authRequired, blockBanned } from "../middleware/auth.js";
 import { query } from "../db.js";
 
 const router = express.Router();
+const MAX_NICKNAME_LEN = 30;
+const MAX_ABOUT_LEN = 500;
+const MAX_AVATAR_LEN = 500;
 
 const selectUserWithBadges = `
   SELECT
@@ -24,6 +27,8 @@ const selectUserWithBadges = `
     ) AS badge_ids,
     (SELECT COUNT(*) FROM posts p WHERE p.user_id = u.id AND p.is_deleted = false) AS posts_count,
     (SELECT COUNT(*) FROM topics t WHERE t.user_id = u.id) AS topics_count,
+    (SELECT COUNT(*) FROM user_follows uf WHERE uf.followed_id = u.id) AS followers_count,
+    (SELECT COUNT(*) FROM user_follows uf WHERE uf.follower_id = u.id) AS following_count,
     (
       COALESCE(
         (SELECT COUNT(*) FROM post_reactions pr
@@ -173,9 +178,28 @@ router.get("/:id", async (req, res) => {
 
 router.patch("/me", authRequired, blockBanned, async (req, res) => {
   const { nickname, avatar_url, hide_badges, about } = req.body;
+  const cleanNickname = nickname?.trim();
+  const cleanAbout = about?.trim();
+  const cleanAvatar = avatar_url?.trim();
+
+  if (nickname !== undefined) {
+    if (!cleanNickname) {
+      return res.status(400).json({ message: "Nickname is required" });
+    }
+    if (cleanNickname.length < 2 || cleanNickname.length > MAX_NICKNAME_LEN) {
+      return res.status(400).json({ message: "Nickname length is invalid" });
+    }
+  }
+  if (cleanAbout && cleanAbout.length > MAX_ABOUT_LEN) {
+    return res.status(400).json({ message: "About is too long" });
+  }
+  if (cleanAvatar && cleanAvatar.length > MAX_AVATAR_LEN) {
+    return res.status(400).json({ message: "Avatar URL is too long" });
+  }
+
   await query(
     "UPDATE users SET nickname = COALESCE($1, nickname), avatar_url = COALESCE($2, avatar_url), hide_badges = COALESCE($3, hide_badges), about = COALESCE($4, about) WHERE id = $5",
-    [nickname?.trim(), avatar_url?.trim(), hide_badges, about?.trim(), req.user.id]
+    [cleanNickname, cleanAvatar, hide_badges, cleanAbout, req.user.id]
   );
   const r = await query(selectUserWithBadges, [req.user.id]);
   res.json(r.rows[0]);

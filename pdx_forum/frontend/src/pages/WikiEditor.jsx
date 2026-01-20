@@ -1,19 +1,50 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
+
+const TITLE_MIN = 3;
+const TITLE_MAX = 120;
+const SUMMARY_MAX = 300;
+const COVER_MAX = 500;
+
+const slugify = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
 
 export default function WikiEditor() {
   const { id } = useParams(); // ak id existuje, editujeme; inak create
   const navigate = useNavigate();
   const { user } = useAuth();
+  const toast = useToast();
   const [canEditWiki, setCanEditWiki] = useState(false);
   const [article, setArticle] = useState(null);
   const [loading, setLoading] = useState(!!id);
   const [blocks, setBlocks] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [form, setForm] = useState({ title: "", summary: "", cover_image: "", category_id: null, status: "draft" });
+  const [uploading, setUploading] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [slugConflict, setSlugConflict] = useState(null);
+  const [dragIndex, setDragIndex] = useState(null);
+  const [dropIndex, setDropIndex] = useState(null);
 
   const isEditor = user && (user.role === "admin" || canEditWiki);
+  const titleLen = form.title.trim().length;
+  const summaryLen = form.summary.length;
+  const coverLen = form.cover_image.length;
+  const titleValid = titleLen >= TITLE_MIN && titleLen <= TITLE_MAX;
+  const summaryValid = summaryLen <= SUMMARY_MAX;
+  const coverValid = coverLen <= COVER_MAX;
+  const canSave = titleValid && summaryValid && coverValid && !uploading;
+  const slugPreview = slugify(form.title);
 
   const normalizeBlocks = (content) => {
     if (!content) return [];
@@ -35,7 +66,50 @@ export default function WikiEditor() {
     return [];
   };
 
-    useEffect(() => {
+  const loadCategories = async () => {
+    try {
+      const res = await api.get("/wiki/categories/list");
+      setCategories(res.data || []);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const loadArticle = async (articleId) => {
+    if (!articleId) return;
+    setLoading(true);
+    try {
+      const res = await api.get(`/wiki/id/${articleId}`);
+      setArticle(res.data);
+      setForm({
+        title: res.data.title,
+        summary: res.data.summary || "",
+        cover_image: res.data.cover_image || "",
+        category_id: res.data.category_id,
+        status: res.data.status,
+      });
+      setBlocks(normalizeBlocks(res.data.content));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadHistory = async (articleId) => {
+    if (!articleId) return;
+    setHistoryLoading(true);
+    try {
+      const res = await api.get(`/wiki/${articleId}/history`);
+      setHistory(res.data || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
     const loadPerms = async () => {
       if (!user) {
         setCanEditWiki(false);
@@ -55,31 +129,23 @@ export default function WikiEditor() {
     };
     loadPerms();
   }, [user]);
+
   useEffect(() => {
-    const load = async () => {
-      if (!id) return;
-      try {
-        const res = await api.get(`/wiki/id/${id}`);
-        setArticle(res.data);
-        setForm({
-          title: res.data.title,
-          summary: res.data.summary || "",
-          cover_image: res.data.cover_image || "",
-          category_id: res.data.category_id,
-          status: res.data.status,
-        });
-        setBlocks(normalizeBlocks(res.data.content));
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
+    loadCategories();
+  }, []);
+
+  useEffect(() => {
+    if (!id) return;
+    loadArticle(id);
+    loadHistory(id);
   }, [id]);
 
-  if (!isEditor) return <div className="page"><p>Len pre wiki moderátorov/adminov.</p></div>;
-  if (loading) return <div className="page"><p>Načítavam...</p></div>;
+  useEffect(() => {
+    if (slugConflict) setSlugConflict(null);
+  }, [form.title]);
+
+  if (!isEditor) return <div className="page"><p>Wiki editors only.</p></div>;
+  if (loading) return <div className="page"><p>Loading...</p></div>;
 
   const createDefaultBlock = (type) => {
     if (type === "columns") {
@@ -112,11 +178,62 @@ export default function WikiEditor() {
     setBlocks((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  const handleImageDrop = (idx, e, opts = {}) => {
+  const moveBlock = (from, to) => {
+    if (from === to || from === null || to === null) return;
+    setBlocks((prev) => {
+      const next = [...prev];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+  };
+
+  const handleDragStart = (idx, e) => {
+    setDragIndex(idx);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (idx, e) => {
+    e.preventDefault();
+    if (idx !== dropIndex) setDropIndex(idx);
+  };
+
+  const handleDrop = (idx, e) => {
+    e.preventDefault();
+    moveBlock(dragIndex, idx);
+    setDragIndex(null);
+    setDropIndex(null);
+  };
+
+  const handleDragEnd = () => {
+    setDragIndex(null);
+    setDropIndex(null);
+  };
+
+  const uploadWikiFile = async (file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      setUploading(true);
+      const res = await api.post("/uploads/wiki", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      return res.data?.url;
+    } catch (err) {
+      console.error(err);
+      toast.error(err.response?.data?.message || "Upload zlyhal.");
+      return null;
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleImageDrop = async (idx, e, opts = {}) => {
     e.preventDefault();
     const file = e.dataTransfer?.files?.[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
+    const url = await uploadWikiFile(file);
+    if (!url) return;
     if (opts.side) {
       updateBlock(idx, {
         [opts.side]: { ...(blocks[idx]?.[opts.side] || {}), url, alt: file.name, caption: file.name, type: "image" },
@@ -128,7 +245,19 @@ export default function WikiEditor() {
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (overrideSlug) => {
+    if (!titleValid) {
+      toast.error("Title length is invalid.");
+      return;
+    }
+    if (!summaryValid) {
+      toast.error("Summary is too long.");
+      return;
+    }
+    if (!coverValid) {
+      toast.error("Cover image URL is too long.");
+      return;
+    }
     const safeBlocks = Array.isArray(blocks) ? blocks : [];
     const payload = {
       title: form.title,
@@ -137,6 +266,7 @@ export default function WikiEditor() {
       cover_image: form.cover_image,
       category_id: form.category_id,
       status: form.status,
+      ...(overrideSlug ? { slug: overrideSlug } : {}),
     };
 
     const submit = (nextPayload) => {
@@ -145,52 +275,130 @@ export default function WikiEditor() {
     };
 
     try {
+      setSlugConflict(null);
       await submit(payload);
+      toast.success("Clanok ulozeny.");
       navigate("/wiki");
     } catch (err) {
       const status = err?.response?.status;
       const suggested = err?.response?.data?.suggestedSlug;
       if (status === 409 && suggested) {
-        const ok = window.confirm(
-          `Nazov uz existuje. Pouzit alternativu "${suggested}"?`
-        );
-        if (!ok) return;
-        try {
-          await submit({ ...payload, slug: suggested });
-          navigate("/wiki");
-          return;
-        } catch (innerErr) {
-          console.error(innerErr);
-        }
+        setSlugConflict({ suggested });
+        return;
       } else {
         console.error(err);
       }
-      alert("Chyba pri ukladani");
+      toast.error("Chyba pri ukladani.");
+    }
+  };
+
+  const handleRollback = async (historyId) => {
+    if (!id) return;
+    if (!window.confirm("Rollback to this version?")) return;
+    try {
+      await api.post(`/wiki/${id}/rollback/${historyId}`);
+      toast.success("Rolled back.");
+      await loadArticle(id);
+      await loadHistory(id);
+    } catch (err) {
+      console.error(err);
+      toast.error("Rollback failed.");
     }
   };
 
   return (
     <div className="page" style={{ display: "grid", gridTemplateColumns: "1fr 260px", gap: 16 }}>
       <div className="card">
-        <h1>{id ? "Upraviť článok" : "Nový článok"}</h1>
+        <h1>{id ? "Edit article" : "New article"}</h1>
+        <label className="topic-meta">Title</label>
         <input
           type="text"
-          placeholder="Názov"
+          placeholder="Title"
           value={form.title}
           onChange={(e) => setForm({ ...form, title: e.target.value })}
+          maxLength={TITLE_MAX}
         />
+        <div className="field-hint">
+          <span>{titleLen}/{TITLE_MAX}</span>
+          <span>Slug: {slugPreview || "-"}</span>
+        </div>
+        {slugConflict?.suggested && (
+          <div className="wiki-alert" style={{ marginTop: 8 }}>
+            <div>
+              Title already exists. Suggested slug:{" "}
+              <code>{slugConflict.suggested}</code>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => handleSave(slugConflict.suggested)}
+              >
+                Use suggested
+              </button>
+              <button
+                type="button"
+                className="btn-link"
+                onClick={() => setSlugConflict(null)}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+        <label className="topic-meta" style={{ marginTop: 10 }}>Summary</label>
         <textarea
           placeholder="Summary"
           rows={2}
           value={form.summary}
           onChange={(e) => setForm({ ...form, summary: e.target.value })}
+          maxLength={SUMMARY_MAX}
         />
+        <div className="field-hint">
+          <span>{summaryLen}/{SUMMARY_MAX}</span>
+        </div>
+        <label className="topic-meta" style={{ marginTop: 10 }}>Cover image URL</label>
         <input
           type="text"
           placeholder="Cover image URL"
           value={form.cover_image}
           onChange={(e) => setForm({ ...form, cover_image: e.target.value })}
+          maxLength={COVER_MAX}
         />
+        <div className="field-hint">
+          <span>{coverLen}/{COVER_MAX}</span>
+        </div>
+        <div
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={async (e) => {
+            const file = e.dataTransfer?.files?.[0];
+            if (!file) return;
+            const url = await uploadWikiFile(file);
+            if (url) setForm((prev) => ({ ...prev, cover_image: url }));
+          }}
+          style={{
+            border: "1px dashed #374151",
+            padding: 8,
+            borderRadius: 8,
+            marginTop: 6,
+            opacity: uploading ? 0.7 : 1,
+          }}
+        >
+          <div className="topic-meta">Drag & drop cover image here</div>
+        </div>
+        <label className="topic-meta" style={{ marginTop: 10 }}>Category</label>
+        <select
+          value={form.category_id || ""}
+          onChange={(e) =>
+            setForm({ ...form, category_id: e.target.value ? Number(e.target.value) : null })
+          }
+        >
+          <option value="">No category</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+        <label className="topic-meta" style={{ marginTop: 10 }}>Status</label>
         <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
           <option value="draft">Draft</option>
           <option value="published">Published</option>
@@ -198,10 +406,13 @@ export default function WikiEditor() {
         </select>
 
         <div style={{ marginTop: 12 }}>
-          <h3>Obsah</h3>
+          <h3>Content</h3>
           {blocks.map((b, idx) => (
             <div
               key={idx}
+              className={`block-editor ${dropIndex === idx ? "drag-over" : ""}`}
+              onDragOver={(e) => handleDragOver(idx, e)}
+              onDrop={(e) => handleDrop(idx, e)}
               style={{
                 border: "1px solid var(--card-border)",
                 padding: 8,
@@ -211,7 +422,18 @@ export default function WikiEditor() {
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <strong>{b.type}</strong>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span
+                    className="drag-handle"
+                    draggable
+                    onDragStart={(e) => handleDragStart(idx, e)}
+                    onDragEnd={handleDragEnd}
+                    title="Drag to reorder"
+                  >
+                    ::
+                  </span>
+                  <strong>{b.type}</strong>
+                </div>
                 <button className="btn-link" onClick={() => removeBlock(idx)}>x</button>
               </div>
 
@@ -247,7 +469,7 @@ export default function WikiEditor() {
                   rows={3}
                   value={Array.isArray(b.items) ? b.items.join("\n") : ""}
                   onChange={(e) => updateBlock(idx, { items: e.target.value.split("\n") })}
-                  placeholder="Položky (každý riadok jedna)"
+                  placeholder="Items (one per line)"
                 />
               )}
 
@@ -260,10 +482,11 @@ export default function WikiEditor() {
                     padding: 8,
                     borderRadius: 8,
                     marginTop: 6,
+                    opacity: uploading ? 0.7 : 1,
                   }}
                 >
                   <p className="topic-meta" style={{ marginBottom: 6 }}>
-                    Drag & drop obrázok sem alebo vlož URL
+                    Drag & drop image here or paste URL
                   </p>
                   <input
                     value={b.url}
@@ -314,6 +537,7 @@ export default function WikiEditor() {
                             padding: 8,
                             borderRadius: 8,
                             marginTop: 6,
+                            opacity: uploading ? 0.7 : 1,
                           }}
                         >
                           <input
@@ -363,6 +587,7 @@ export default function WikiEditor() {
                             padding: 8,
                             borderRadius: 8,
                             marginTop: 6,
+                            opacity: uploading ? 0.7 : 1,
                           }}
                         >
                           <input
@@ -402,6 +627,7 @@ export default function WikiEditor() {
                       padding: 8,
                       borderRadius: 8,
                       marginTop: 6,
+                      opacity: uploading ? 0.7 : 1,
                     }}
                   >
                     <input
@@ -492,62 +718,101 @@ export default function WikiEditor() {
           </div>
         </div>
 
-        <button className="btn-primary" style={{ marginTop: 12 }} onClick={handleSave}>
-          Uložiť
+        <button className="btn-primary" style={{ marginTop: 12 }} onClick={() => handleSave()} disabled={!canSave}>
+          Save
         </button>
+        {!canSave && (
+          <div className="field-hint" style={{ marginTop: 6 }}>
+            <span>Title 3-120, summary &lt;= 300, cover &lt;= 500</span>
+          </div>
+        )}
+        {uploading && <div className="topic-meta" style={{ marginTop: 6 }}>Nahravam obrazok...</div>}
       </div>
 
-      <div className="card">
-        <h3>Preview</h3>
-        <div>
-          <h2>{form.title}</h2>
-          <p className="topic-meta">{form.summary}</p>
-          {form.cover_image && <img src={form.cover_image} alt="" style={{ width: "100%", borderRadius: 12 }} />}
-          {(blocks || []).map((b, idx) => (
-            <div key={idx} style={{ marginTop: 8 }}>
-              {b.type === "heading" && (b.level === 1 ? <h2>{b.text}</h2> : b.level === 2 ? <h3>{b.text}</h3> : <h4>{b.text}</h4>)}
-              {b.type === "paragraph" && <p>{b.text}</p>}
-              {b.type === "list" && <ul>{(b.items || []).map((it, i) => <li key={i}>{it}</li>)}</ul>}
-              {b.type === "image" && b.url && <img src={b.url} alt="" style={{ maxWidth: "100%" }} />}
-              {b.type === "quote" && <blockquote>{b.text}</blockquote>}
-              {b.type === "code" && <pre>{b.text}</pre>}
-              {b.type === "columns" && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  <div>
-                    {b.left?.type === "paragraph" && <p>{b.left.text}</p>}
-                    {b.left?.type === "image" && b.left?.url && (
-                      <img src={b.left.url} alt="" style={{ maxWidth: "100%" }} />
-                    )}
-                  </div>
-                  <div>
-                    {b.right?.type === "paragraph" && <p>{b.right.text}</p>}
-                    {b.right?.type === "image" && b.right?.url && (
-                      <img src={b.right.url} alt="" style={{ maxWidth: "100%" }} />
-                    )}
-                  </div>
-                </div>
-              )}
-              {b.type === "infobox" && (
-                <div style={{ border: "1px solid var(--card-border)", borderRadius: 8, padding: 8 }}>
-                  {b.title && <div style={{ fontWeight: 600, marginBottom: 6 }}>{b.title}</div>}
-                  {b.image_url && (
-                    <img src={b.image_url} alt="" style={{ maxWidth: "100%", borderRadius: 6 }} />
-                  )}
-                  {(b.items || []).map((it, i) => (
-                    <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                      <span>{it.label}</span>
-                      <span>{it.value}</span>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div className="card">
+          <h3>Preview</h3>
+          <div>
+            <h2>{form.title}</h2>
+            <p className="topic-meta">{form.summary}</p>
+            {form.cover_image && <img src={form.cover_image} alt="" style={{ width: "100%", borderRadius: 12 }} />}
+            {(blocks || []).map((b, idx) => (
+              <div key={idx} style={{ marginTop: 8 }}>
+                {b.type === "heading" && (b.level === 1 ? <h2>{b.text}</h2> : b.level === 2 ? <h3>{b.text}</h3> : <h4>{b.text}</h4>)}
+                {b.type === "paragraph" && <p>{b.text}</p>}
+                {b.type === "list" && <ul>{(b.items || []).map((it, i) => <li key={i}>{it}</li>)}</ul>}
+                {b.type === "image" && b.url && <img src={b.url} alt="" style={{ maxWidth: "100%" }} />}
+                {b.type === "quote" && <blockquote>{b.text}</blockquote>}
+                {b.type === "code" && <pre>{b.text}</pre>}
+                {b.type === "columns" && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <div>
+                      {b.left?.type === "paragraph" && <p>{b.left.text}</p>}
+                      {b.left?.type === "image" && b.left?.url && (
+                        <img src={b.left.url} alt="" style={{ maxWidth: "100%" }} />
+                      )}
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
+                    <div>
+                      {b.right?.type === "paragraph" && <p>{b.right.text}</p>}
+                      {b.right?.type === "image" && b.right?.url && (
+                        <img src={b.right.url} alt="" style={{ maxWidth: "100%" }} />
+                      )}
+                    </div>
+                  </div>
+                )}
+                {b.type === "infobox" && (
+                  <div style={{ border: "1px solid var(--card-border)", borderRadius: 8, padding: 8 }}>
+                    {b.title && <div style={{ fontWeight: 600, marginBottom: 6 }}>{b.title}</div>}
+                    {b.image_url && (
+                      <img src={b.image_url} alt="" style={{ maxWidth: "100%", borderRadius: 6 }} />
+                    )}
+                    {(b.items || []).map((it, i) => (
+                      <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                        <span>{it.label}</span>
+                        <span>{it.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
+
+        {id && (
+          <div className="card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3>History</h3>
+              <span className="topic-meta">{history.length} entries</span>
+            </div>
+            {historyLoading ? (
+              <p className="topic-meta">Loading...</p>
+            ) : history.length === 0 ? (
+              <p className="topic-meta">No history yet.</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+                {history.map((h) => (
+                  <div key={h.id} className="tag-audit-item">
+                    <div style={{ fontWeight: 600 }}>{h.title}</div>
+                    <div className="topic-meta">
+                      {h.changed_by_name || "unknown"} | {new Date(h.created_at).toLocaleString("sk-SK")}
+                    </div>
+                    <div className="topic-meta">Status: {h.status}</div>
+                    <button className="btn-secondary" type="button" onClick={() => handleRollback(h.id)}>
+                      Rollback
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
+
 
 
 

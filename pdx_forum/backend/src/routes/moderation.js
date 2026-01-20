@@ -37,6 +37,62 @@ router.get("/permissions/me", authRequired, async (req, res) => {
   }
 });
 
+router.post("/warn", authRequired, blockBanned, requirePermission("can_ban_users"), async (req, res) => {
+  const { userId, reason = "" } = req.body;
+
+  try {
+    const targetRes = await query("SELECT role FROM users WHERE id = $1", [userId]);
+    if (targetRes.rowCount === 0) return res.status(404).json({ message: "User not found" });
+    if (targetRes.rows[0].role === "admin") {
+      return res.status(403).json({ message: "Cannot warn admin" });
+    }
+
+    await query(
+      "INSERT INTO bans (user_id, action, banned_by, reason, banned_until) VALUES ($1, $2, $3, $4, $5)",
+      [userId, "warn", req.user.id, reason, null]
+    );
+
+    res.json({ message: "User warned" });
+  } catch (err) {
+    console.error("WARN ERROR:", err);
+    res.status(500).json({ message: "Server error warning user" });
+  }
+});
+
+router.post("/mute", authRequired, blockBanned, requirePermission("can_ban_users"), async (req, res) => {
+  const { userId, reason = "", minutes } = req.body;
+  const minutesNum = Number(minutes);
+
+  if (!Number.isInteger(minutesNum) || minutesNum <= 0) {
+    return res.status(400).json({ message: "Invalid mute duration" });
+  }
+
+  try {
+    const targetRes = await query("SELECT role FROM users WHERE id = $1", [userId]);
+    if (targetRes.rowCount === 0) return res.status(404).json({ message: "User not found" });
+    if (targetRes.rows[0].role === "admin") {
+      return res.status(403).json({ message: "Cannot mute admin" });
+    }
+
+    const bannedUntil = new Date(Date.now() + minutesNum * 60 * 1000);
+
+    await query(
+      "UPDATE users SET is_banned = true, banned_until = $1 WHERE id = $2",
+      [bannedUntil, userId]
+    );
+
+    await query(
+      "INSERT INTO bans (user_id, action, banned_by, reason, banned_until) VALUES ($1, $2, $3, $4, $5)",
+      [userId, "mute", req.user.id, reason, bannedUntil]
+    );
+
+    res.json({ message: "User muted", banned_until: bannedUntil });
+  } catch (err) {
+    console.error("MUTE ERROR:", err);
+    res.status(500).json({ message: "Server error muting user" });
+  }
+});
+
 router.post("/ban", authRequired, blockBanned, requirePermission("can_ban_users"), async (req, res) => {
   const { userId, reason = "", bannedUntil = null } = req.body;
 

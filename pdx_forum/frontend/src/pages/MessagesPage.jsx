@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
 
 export default function MessagesPage() {
   const { user } = useAuth();
+  const toast = useToast();
   const { userId } = useParams(); // ak je zadané, otvorí sa vlákno
   const navigate = useNavigate();
   const [threads, setThreads] = useState([]);
@@ -19,6 +21,7 @@ export default function MessagesPage() {
       setThreads(res.data);
     } catch (err) {
       console.error(err);
+      toast.error("Nepodarilo sa nacitat konverzacie.");
     }
   };
 
@@ -38,6 +41,7 @@ export default function MessagesPage() {
       }
     } catch (err) {
       console.error(err);
+      toast.error("Nepodarilo sa nacitat spravy.");
     } finally {
       setLoading(false);
     }
@@ -81,6 +85,7 @@ export default function MessagesPage() {
       });
     } catch (err) {
       console.error(err);
+      toast.error("Nepodarilo sa odoslat spravu.");
     }
   };
 
@@ -100,7 +105,14 @@ export default function MessagesPage() {
     <div className="page" style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 12 }}>
       <div className="card" style={{ minHeight: 400 }}>
         <h3>Konverzácie</h3>
-        {threads.length === 0 && <p className="topic-meta">Žiadne konverzácie.</p>}
+        {threads.length === 0 && (
+          <div className="empty-state" style={{ marginTop: 8 }}>
+            <div>Žiadne konverzácie.</div>
+            <div className="topic-meta" style={{ marginTop: 6 }}>
+              Otvor profil a klikni na „Napísať správu”.
+            </div>
+          </div>
+        )}
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {threads.map((t) => (
             <button
@@ -150,33 +162,42 @@ export default function MessagesPage() {
                   paddingRight: 4,
                 }}
               >
-                {messages.map((m) => (
-                  <div
-                    key={m.id}
-                    style={{
-                      alignSelf: m.sender_id === user.id ? "flex-end" : "flex-start",
-                      background: m.sender_id === user.id ? "var(--accent)" : "var(--chip-bg)",
-                      color: m.sender_id === user.id ? "#fff" : "var(--text)",
-                      padding: "8px 10px",
-                      borderRadius: 10,
-                      maxWidth: "72%",
-                    }}
-                  >
+                {messages.length === 0 ? (
+                  <div className="empty-state">
+                    <div>Žiadne správy v tejto konverzácii.</div>
+                    <div className="topic-meta" style={{ marginTop: 6 }}>
+                      Napíš prvú správu nižšie.
+                    </div>
+                  </div>
+                ) : (
+                  messages.map((m) => (
                     <div
+                      key={m.id}
                       style={{
-                        fontSize: 12,
-                        color: "#9ca3af",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: 8,
+                        alignSelf: m.sender_id === user.id ? "flex-end" : "flex-start",
+                        background: m.sender_id === user.id ? "var(--accent)" : "var(--chip-bg)",
+                        color: m.sender_id === user.id ? "#fff" : "var(--text)",
+                        padding: "8px 10px",
+                        borderRadius: 10,
+                        maxWidth: "72%",
                       }}
                     >
-                      <span>{m.sender_nickname || m.sender_username || `User ${m.sender_id}`}</span>
-                      <span>{new Date(m.created_at).toLocaleString("sk-SK")}</span>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: "#9ca3af",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 8,
+                        }}
+                      >
+                        <span>{m.sender_nickname || m.sender_username || `User ${m.sender_id}`}</span>
+                        <span>{new Date(m.created_at).toLocaleString("sk-SK")}</span>
+                      </div>
+                      <div>{m.content}</div>
                     </div>
-                    <div>{m.content}</div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
               <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                 <input

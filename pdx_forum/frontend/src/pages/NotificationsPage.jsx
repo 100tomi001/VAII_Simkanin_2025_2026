@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
 
 export default function NotificationsPage() {
   const { user } = useAuth();
+  const toast = useToast();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -18,6 +20,7 @@ export default function NotificationsPage() {
       } catch (err) {
         console.error(err);
         setError("Failed to load notifications.");
+        toast.error("Nepodarilo sa nacitat notifikacie.");
       } finally {
         setLoading(false);
       }
@@ -146,6 +149,38 @@ export default function NotificationsPage() {
       );
     }
 
+    if (n.type === "report") {
+      const isUserReport = t.type === "user" || (!!t.targetUserId && !t.postId);
+      const postId = t.postId || t.contextPostId;
+      const targetHref = t.topicId && postId ? `/topic/${t.topicId}#post-${postId}` : null;
+      const profileHref = t.targetUserId ? `/profile/${t.targetUserId}` : null;
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div>
+            New {isUserReport ? "user" : "post"} report received
+            {" | "}
+            <Link to="/moderation" style={{ color: "var(--accent)" }}>
+              moderation
+            </Link>
+          </div>
+          {profileHref && isUserReport && (
+            <div className="topic-meta">
+              <Link to={profileHref} style={{ color: "var(--accent)" }}>
+                open profile
+              </Link>
+            </div>
+          )}
+          {targetHref && (
+            <div className="topic-meta">
+              <Link to={targetHref} style={{ color: "var(--accent)" }}>
+                open post
+              </Link>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     return (
       <pre style={{ whiteSpace: "pre-wrap", fontSize: 12 }}>
         {JSON.stringify(n.payload, null, 2)}
@@ -163,7 +198,16 @@ export default function NotificationsPage() {
         {loading ? (
           <p>Loading...</p>
         ) : items.length === 0 ? (
-          <p className="topic-meta">No notifications.</p>
+          <div className="empty-state">
+            <div>No notifications.</div>
+            <div className="topic-meta" style={{ marginTop: 6 }}>
+              You are all caught up.
+            </div>
+            <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+              <Link to="/forum" className="btn-secondary">Go to forum</Link>
+              <Link to="/wiki" className="btn-secondary">Browse wiki</Link>
+            </div>
+          </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {items.map((n) => (

@@ -325,6 +325,13 @@ select:focus {
   color: var(--text-muted);
 }
 
+.topic-snippet {
+  margin-top: 6px;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
 .category-hub {
   display: flex;
   flex-direction: column;
@@ -404,6 +411,26 @@ select:focus {
   margin-top: 6px;
 }
 
+.field-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.tag-audit-item {
+  border: 1px solid var(--card-border);
+  background: var(--chip-bg);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .filter-groups {
   display: flex;
   flex-direction: column;
@@ -445,6 +472,13 @@ select:focus {
 
 .filter-chip button:hover {
   color: var(--text);
+}
+
+.search-highlight {
+  background: var(--accent-soft);
+  color: var(--text);
+  padding: 0 2px;
+  border-radius: 4px;
 }
 
 .empty-state {
@@ -517,6 +551,50 @@ select:focus {
   100% {
     opacity: 0.9;
   }
+}
+
+/* Toasts */
+.toast-stack {
+  position: fixed;
+  top: 74px;
+  right: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 50;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow);
+  border-radius: 12px;
+  padding: 10px 12px;
+  min-width: 220px;
+  color: var(--text);
+}
+
+.toast button {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.toast-success {
+  border-color: #22c55e;
+}
+
+.toast-error {
+  border-color: #ef4444;
+}
+
+.toast-info {
+  border-color: #3b82f6;
 }
 
 /* Profile */
@@ -823,6 +901,30 @@ select:focus {
   margin-bottom: 6px;
 }
 
+.wiki-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.wiki-breadcrumb a {
+  color: var(--link);
+}
+
+.wiki-breadcrumb-sep {
+  color: var(--text-muted);
+}
+
+.wiki-side {
+  position: sticky;
+  top: 78px;
+  align-self: start;
+}
+
 .wiki-item {
   border: 1px solid var(--wiki-border);
   background: var(--wiki-paper);
@@ -854,6 +956,206 @@ select:focus {
   background: var(--wiki-paper);
   border-radius: 12px;
   padding: 10px 12px;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.block-editor.drag-over {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid var(--chip-border);
+  background: var(--chip-bg);
+  color: var(--text-muted);
+  cursor: grab;
+  font-size: 12px;
+  user-select: none;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.wiki-home {
+  align-items: stretch;
+}
+
+.wiki-main,
+.wiki-article {
+  min-width: 0;
+}
+
+.wiki-home-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.wiki-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--wiki-border);
+  background: var(--wiki-head);
+  padding: 14px 16px;
+}
+
+.wiki-hero h2 {
+  margin: 0 0 6px;
+  font-family: var(--font-serif);
+}
+
+.wiki-hero p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.wiki-hero-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wiki-section {
+  border: 1px solid var(--wiki-border);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--wiki-paper);
+}
+
+.wiki-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.wiki-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.wiki-card-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.wiki-card-link:hover {
+  color: inherit;
+}
+
+.wiki-article-card {
+  border: 1px solid var(--wiki-border);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--wiki-head);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 110px;
+}
+
+.wiki-article-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.wiki-article-title {
+  font-weight: 600;
+  font-family: var(--font-serif);
+}
+
+.wiki-article-summary {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.wiki-news-card {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--wiki-border);
+  border-radius: 10px;
+  padding: 8px;
+  background: var(--wiki-head);
+}
+
+.wiki-news-card img {
+  width: 64px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.wiki-article .filter-hint {
+  margin-bottom: 12px;
+}
+
+.report-card {
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--topic-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.report-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-status {
+  font-size: 11px;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--chip-border);
+  background: var(--chip-bg);
+  color: var(--text-muted);
+}
+
+.report-open {
+  border-color: #f59e0b;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.15);
+}
+
+.report-reviewed {
+  border-color: #3b82f6;
+  color: #1d4ed8;
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.report-closed {
+  border-color: #10b981;
+  color: #047857;
+  background: rgba(16, 185, 129, 0.15);
+}
+
+.report-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.report-reason {
+  font-weight: 600;
 }
 
 /* Responsive */
@@ -867,6 +1169,15 @@ select:focus {
 @media (max-width: 900px) {
   .page {
     padding: 16px;
+  }
+
+  .wiki-hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .wiki-hero-actions {
+    width: 100%;
   }
 
   .profile-layout {

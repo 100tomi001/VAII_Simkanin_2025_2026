@@ -1,11 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import api from "../api/axios";
 
 export default function WikiRecent() {
   const [items, setItems] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [authorFilter, setAuthorFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
   const navigate = useNavigate();
   const searchInputRef = useRef(null);
 
@@ -29,8 +32,12 @@ export default function WikiRecent() {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await api.get("/wiki/recent/changes?limit=50");
+        const [res, cats] = await Promise.all([
+          api.get("/wiki/recent/changes?limit=50"),
+          api.get("/wiki/categories/list"),
+        ]);
         setItems(res.data);
+        setCategories(cats.data || []);
       } catch (err) {
         console.error(err);
       } finally {
@@ -39,6 +46,17 @@ export default function WikiRecent() {
     };
     load();
   }, []);
+
+  const filteredItems = items.filter((r) => {
+    if (authorFilter) {
+      const match = String(r.changed_by || "")
+        .toLowerCase()
+        .includes(authorFilter.trim().toLowerCase());
+      if (!match) return false;
+    }
+    if (categoryFilter && r.category_slug !== categoryFilter) return false;
+    return true;
+  });
 
   return (
     <div className="page">
@@ -74,9 +92,33 @@ export default function WikiRecent() {
               Search
             </button>
           </div>
-          <div className="filter-hint">Tip: Press “/” to focus search. Esc clears search.</div>
+          <div className="filter-hint">Tip: Press / to focus search. Esc clears search.</div>
+          <div className="filter-row" style={{ marginTop: 8 }}>
+            <input
+              type="text"
+              placeholder="Filter by author..."
+              value={authorFilter}
+              onChange={(e) => setAuthorFilter(e.target.value)}
+              style={{ flex: 1 }}
+            />
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+            >
+              <option value="">All categories</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.slug}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-        {!loading && <div className="topic-meta">{items.length} changes</div>}
+        {!loading && (
+          <div className="topic-meta">
+            {filteredItems.length} of {items.length} changes
+          </div>
+        )}
         {loading ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {Array.from({ length: 6 }).map((_, i) => (
@@ -86,7 +128,7 @@ export default function WikiRecent() {
               </div>
             ))}
           </div>
-        ) : items.length === 0 ? (
+        ) : filteredItems.length === 0 ? (
           <div className="empty-state">
             <div>No changes yet.</div>
             <Link to="/wiki" className="btn-secondary" style={{ marginTop: 8, display: "inline-block" }}>
@@ -95,7 +137,7 @@ export default function WikiRecent() {
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {items.map((r, i) => (
+            {filteredItems.map((r, i) => (
               <div key={`${r.article_id}-${i}`} className="topic-item wiki-item">
                 <div>
                   <div className="topic-title">

@@ -2,10 +2,16 @@ import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
 
 export default function NewTopic() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const toast = useToast();
+
+  const TITLE_MAX = 120;
+  const CONTENT_MAX = 5000;
+  const TAG_MAX = 10;
 
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -48,9 +54,14 @@ export default function NewTopic() {
   }
 
   const toggleTag = (id) => {
-    setSelectedTagIds((prev) =>
-      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
-    );
+    setSelectedTagIds((prev) => {
+      if (prev.includes(id)) return prev.filter((t) => t !== id);
+      if (prev.length >= TAG_MAX) {
+        setError(`Max ${TAG_MAX} tagov.`);
+        return prev;
+      }
+      return [...prev, id];
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -71,10 +82,12 @@ export default function NewTopic() {
       });
 
       const newId = res.data.id;
+      toast.success("Tema vytvorena.");
       navigate(`/topic/${newId}`);
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.message || "Chyba pri vytvarani temy.");
+      toast.error("Nepodarilo sa vytvorit temu.");
     }
   };
 
@@ -91,8 +104,15 @@ export default function NewTopic() {
             type="text"
             placeholder="Nazov temy"
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            maxLength={TITLE_MAX}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              if (error) setError("");
+            }}
           />
+          <div className="topic-meta" style={{ marginTop: 4 }}>
+            {title.length}/{TITLE_MAX}
+          </div>
 
           <select
             value={categoryId}
@@ -111,7 +131,11 @@ export default function NewTopic() {
             rows={8}
             placeholder="Uvodny prispevok..."
             value={content}
-            onChange={(e) => setContent(e.target.value)}
+            maxLength={CONTENT_MAX}
+            onChange={(e) => {
+              setContent(e.target.value);
+              if (error) setError("");
+            }}
             style={{
               background: "var(--input-bg)",
               border: "1px solid var(--input-border)",
@@ -121,9 +145,15 @@ export default function NewTopic() {
               resize: "vertical",
             }}
           />
+          <div className="topic-meta" style={{ marginTop: 4 }}>
+            {content.length}/{CONTENT_MAX}
+          </div>
 
           <div style={{ marginTop: 10 }}>
             <div style={{ marginBottom: 6, fontWeight: 600 }}>Tagy</div>
+            <div className="topic-meta" style={{ marginBottom: 6 }}>
+              {selectedTagIds.length}/{TAG_MAX} selected
+            </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {tags.map((tag) => (
                 <button

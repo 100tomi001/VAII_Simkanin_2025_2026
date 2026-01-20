@@ -187,6 +187,7 @@ export default function Navbar() {
                      {(user.role === "admin" || canEditWiki) && (
                       <Link to="/wiki/new" className="btn-link">Novy clanok</Link>
                     )}
+                    <Link to="/moderation" className="btn-link">Moderation</Link>
                     {user.role === "admin" && <Link to="/admin" className="btn-link">Admin panel</Link>}
                   </div>
                 )}

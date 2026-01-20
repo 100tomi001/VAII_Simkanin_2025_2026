@@ -10,6 +10,7 @@ import WikiEditor from "../pages/WikiEditor";
 import WikiRecent from "../pages/WikiRecent";
 import ManageMeta from "../pages/ManageMeta";
 import ManageReactions from "../pages/ManageReactions";
+import Moderation from "../pages/Moderation";
 import NotificationsPage from "../pages/NotificationsPage";
 import MessagesPage from "../pages/MessagesPage";
 import NewTopic from "../pages/NewTopic";
@@ -40,6 +41,7 @@ export default function AppRouter() {
           <Route path="/wiki/new" element={<WikiEditor />} />
           <Route path="/manage/meta" element={<ManageMeta />} />
           <Route path="/manage/reactions" element={<ManageReactions />} />
+          <Route path="/moderation" element={<Moderation />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/messages/:userId" element={<MessagesPage />} />
         </Routes>
