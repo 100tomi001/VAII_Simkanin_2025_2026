@@ -22,7 +22,9 @@ export default function Forum() {
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [reportedTopicIds, setReportedTopicIds] = useState(new Set());
   const pageSize = 15;
+  const isModOrAdmin = ["admin", "moderator"].includes(user?.role);
   const searchInputRef = useRef(null);
   const hasFilters = query || selectedTags.length > 0 || selectedCategory;
   const selectedCategoryLabel =
@@ -122,6 +124,26 @@ export default function Forum() {
     };
     loadTopics();
   }, [query, selectedTags, tagMode, selectedCategory, sortKey, page]);
+
+  useEffect(() => {
+    const loadReports = async () => {
+      if (!isModOrAdmin) {
+        setReportedTopicIds(new Set());
+        return;
+      }
+      try {
+        const res = await api.get("/reports", { params: { status: "open" } });
+        const ids = new Set();
+        (res.data || []).forEach((r) => {
+          if (r.topic_id) ids.add(Number(r.topic_id));
+        });
+        setReportedTopicIds(ids);
+      } catch (err) {
+        console.error("Load reports error", err);
+      }
+    };
+    loadReports();
+  }, [isModOrAdmin]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -417,8 +439,14 @@ export default function Forum() {
               const snippetText =
                 snippet.length > 140 ? `${snippet.slice(0, 140)}...` : snippet;
 
+              const isReported = isModOrAdmin && reportedTopicIds.has(t.id);
+
               return (
-                <div key={t.id} className="topic-item" onClick={() => handleOpenTopic(t.id)}>
+                <div
+                  key={t.id}
+                  className={`topic-item ${isReported ? "reported-outline" : ""}`}
+                  onClick={() => handleOpenTopic(t.id)}
+                >
                 <div>
                   <div className="topic-title">
                     {t.is_sticky && <span style={{ marginRight: 6, color: "#fbbf24" }}>PIN</span>}

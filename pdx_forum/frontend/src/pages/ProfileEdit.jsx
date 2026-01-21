@@ -135,7 +135,7 @@ export default function ProfileEdit() {
     <div className="page" style={{ maxWidth: 960, margin: "0 auto" }}>
       <div className="card" style={{ borderRadius: 16, padding: 20 }}>
         <h2>Upravit profil</h2>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 12 }}>
+        <div className="profile-edit-grid">
           <div>
             <label className="topic-meta">Username</label>
             <div style={{ background: "var(--chip-bg)", padding: 10, borderRadius: 10 }}>{user.username}</div>
@@ -229,7 +229,7 @@ export default function ProfileEdit() {
         </button>
 
         <h3 style={{ marginTop: 20 }}>Zmena hesla</h3>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div className="profile-password-grid">
           <input
             type="password"
             placeholder="Aktualne heslo"

@@ -94,6 +94,25 @@ export default function MessagesPage() {
     return threads.find((t) => String(t.other_id) === String(userId));
   }, [threads, userId]);
 
+  const partnerLabel = useMemo(() => {
+    if (!userId) return "";
+    if (currentPartner) {
+      return (
+        currentPartner.other_nickname ||
+        currentPartner.other_username ||
+        `User ${currentPartner.other_id}`
+      );
+    }
+    const firstMsg = messages[0];
+    if (firstMsg) {
+      const otherIsSender = firstMsg.sender_id !== user?.id;
+      const nick = otherIsSender ? firstMsg.sender_nickname : firstMsg.recipient_nickname;
+      const uname = otherIsSender ? firstMsg.sender_username : firstMsg.recipient_username;
+      return nick || uname || `User ${userId}`;
+    }
+    return `User ${userId}`;
+  }, [currentPartner, messages, userId, user]);
+
   if (!user)
     return (
       <div className="page">
@@ -102,7 +121,7 @@ export default function MessagesPage() {
     );
 
   return (
-    <div className="page" style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 12 }}>
+    <div className="page messages-layout">
       <div className="card" style={{ minHeight: 400 }}>
         <h3>Konverzácie</h3>
         {threads.length === 0 && (
@@ -138,7 +157,10 @@ export default function MessagesPage() {
 
       <div className="card" style={{ display: "flex", flexDirection: "column", gap: 8, minHeight: 400 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3>Správy</h3>
+          <div>
+            <h3>Správy</h3>
+            {partnerLabel && <div className="topic-meta">Komu pises: {partnerLabel}</div>}
+          </div>
           {currentPartner && (
             <Link className="btn-link" to={`/profile/${currentPartner.other_id}`}>
               Otvoriť profil
@@ -185,7 +207,10 @@ export default function MessagesPage() {
                       <div
                         style={{
                           fontSize: 12,
-                          color: "#9ca3af",
+                          color:
+                            m.sender_id === user.id
+                              ? "rgba(255,255,255,0.8)"
+                              : "var(--text-muted)",
                           display: "flex",
                           justifyContent: "space-between",
                           gap: 8,

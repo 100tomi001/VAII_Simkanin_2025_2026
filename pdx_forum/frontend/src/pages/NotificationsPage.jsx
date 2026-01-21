@@ -149,6 +149,25 @@ export default function NotificationsPage() {
       );
     }
 
+    if (n.type === "message") {
+      const fromLabel = t.fromNickname || t.fromUsername || (t.from ? `User ${t.from}` : "Someone");
+      const targetHref = t.from ? `/messages/${t.from}` : "/messages";
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div>
+            New message from <strong>{fromLabel}</strong>
+            {" | "}
+            <Link to={targetHref} style={{ color: "var(--accent)" }}>
+              open chat
+            </Link>
+          </div>
+          {t.snippet && (
+            <div style={{ fontSize: 13, color: "var(--text-muted)" }}>"{t.snippet}"</div>
+          )}
+        </div>
+      );
+    }
+
     if (n.type === "report") {
       const isUserReport = t.type === "user" || (!!t.targetUserId && !t.postId);
       const postId = t.postId || t.contextPostId;

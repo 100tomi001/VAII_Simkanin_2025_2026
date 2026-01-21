@@ -99,7 +99,7 @@ router.get("/", async (req, res) => {
 
     let orderBy = "t.is_sticky DESC, last_activity DESC";
     if (sort === "trending") orderBy = "replies DESC, last_activity DESC";
-    if (sort === "latest") orderBy = "t.created_at DESC";
+    if (sort === "latest") orderBy = "t.is_sticky DESC, recent_replies DESC, last_activity DESC";
     if (sort === "new") orderBy = "last_activity DESC";
 
     const listSql = `
@@ -120,6 +120,9 @@ router.get("/", async (req, res) => {
         lu.username AS last_author,
         fp.content AS first_post_content,
         COUNT(DISTINCT p.id) AS replies,
+        COUNT(DISTINCT p.id) FILTER (
+          WHERE p.created_at >= NOW() - INTERVAL '3 days' AND p.is_deleted = false
+        ) AS recent_replies,
         COALESCE(MAX(p.created_at), t.created_at) AS last_activity,
         COALESCE(
           json_agg(DISTINCT jsonb_build_object('id', tg.id, 'name', tg.name))

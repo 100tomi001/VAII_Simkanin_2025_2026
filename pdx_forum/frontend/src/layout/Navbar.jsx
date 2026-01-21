@@ -14,8 +14,11 @@ export default function Navbar() {
   const [msgCount, setMsgCount] = useState(0);
   const [canEditWiki, setCanEditWiki] = useState(false);
   const [canManageReactions, setCanManageReactions] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const profileRef = useRef(null);
   const adminRef = useRef(null);
+  const mobileRef = useRef(null);
+  const mobileToggleRef = useRef(null);
 
   const handleLogout = () => {
     logout();
@@ -29,6 +32,14 @@ export default function Navbar() {
       }
       if (adminRef.current && !adminRef.current.contains(e.target)) {
         setAdminOpen(false);
+      }
+      if (
+        mobileRef.current &&
+        !mobileRef.current.contains(e.target) &&
+        mobileToggleRef.current &&
+        !mobileToggleRef.current.contains(e.target)
+      ) {
+        setMobileOpen(false);
       }
     };
     window.addEventListener("click", onClick);
@@ -80,15 +91,22 @@ export default function Navbar() {
     return () => window.removeEventListener("msg-read", onMsgRead);
   }, []);
 
+  const navLinks = (
+    <>
+      <Link to="/forum" onClick={() => setMobileOpen(false)}>Forum</Link>
+      <Link to="/wiki" onClick={() => setMobileOpen(false)}>Wiki</Link>
+    </>
+  );
+
   return (
-    <header className="navbar">
+    <header className={`navbar ${mobileOpen ? "nav-open" : ""}`}>
       <div className="navbar-left">
         <Link to="/" className="logo">
           PDX Forum
         </Link>
 
         <select
-          className="theme-select"
+          className="theme-select nav-desktop-only"
           value={theme}
           onChange={(e) => setTheme(e.target.value)}
           aria-label="Theme"
@@ -98,13 +116,10 @@ export default function Navbar() {
           <option value="dark">Dark</option>
         </select>
 
-        <nav className="nav-links">
-          <Link to="/forum">Fórum</Link>
-          <Link to="/wiki">Wiki</Link>
-        </nav>
+        <nav className="nav-links nav-desktop-only">{navLinks}</nav>
       </div>
 
-      <div className="navbar-right">
+      <div className="navbar-right nav-desktop-only">
         {user ? (
           <>
             <div
@@ -237,9 +252,113 @@ export default function Navbar() {
           </>
         )}
       </div>
+
+      <button
+        ref={mobileToggleRef}
+        className="nav-toggle"
+        type="button"
+        aria-label="Menu"
+        aria-expanded={mobileOpen}
+        onClick={(e) => {
+          e.stopPropagation();
+          setMobileOpen((v) => !v);
+          setProfileOpen(false);
+          setAdminOpen(false);
+        }}
+      >
+        <span />
+        <span />
+        <span />
+      </button>
+
+      <div
+        ref={mobileRef}
+        className={`nav-mobile ${mobileOpen ? "open" : ""}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="nav-mobile-section">
+          <select
+            className="theme-select"
+            value={theme}
+            onChange={(e) => setTheme(e.target.value)}
+            aria-label="Theme"
+          >
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </div>
+
+        <nav className="nav-links nav-mobile-links">{navLinks}</nav>
+
+        <div className="nav-mobile-section nav-mobile-actions">
+          {user ? (
+            <>
+              <Link to="/profile" className="btn-secondary" onClick={() => setMobileOpen(false)}>
+                Profil
+              </Link>
+              <Link to="/settings/profile" className="btn-secondary" onClick={() => setMobileOpen(false)}>
+                Upravit profil
+              </Link>
+              {(user.role === "admin" || user.role === "moderator") && (
+                <>
+                  <Link to="/manage/meta" className="btn-secondary" onClick={() => setMobileOpen(false)}>
+                    Tagy & Badge
+                  </Link>
+                  {(user.role === "admin" || canManageReactions) && (
+                    <Link to="/manage/reactions" className="btn-secondary" onClick={() => setMobileOpen(false)}>
+                      Reakcie
+                    </Link>
+                  )}
+                  {(user.role === "admin" || canEditWiki) && (
+                    <Link to="/wiki/new" className="btn-secondary" onClick={() => setMobileOpen(false)}>
+                      Novy clanok
+                    </Link>
+                  )}
+                  <Link to="/moderation" className="btn-secondary" onClick={() => setMobileOpen(false)}>
+                    Moderation
+                  </Link>
+                  {user.role === "admin" && (
+                    <Link to="/admin" className="btn-secondary" onClick={() => setMobileOpen(false)}>
+                      Admin panel
+                    </Link>
+                  )}
+                </>
+              )}
+              <Link to="/notifications" className="btn-secondary" onClick={() => setMobileOpen(false)}>
+                Notifikacie {notifCount > 0 ? `(${notifCount})` : ""}
+              </Link>
+              <Link to="/messages/1" className="btn-secondary" onClick={() => setMobileOpen(false)}>
+                Spravy {msgCount > 0 ? `(${msgCount})` : ""}
+              </Link>
+              <button
+                className="btn-secondary"
+                type="button"
+                onClick={() => {
+                  setMobileOpen(false);
+                  handleLogout();
+                }}
+              >
+                Odhlasit sa
+              </button>
+            </>
+          ) : (
+            <>
+              <Link to="/login" className="btn-secondary" onClick={() => setMobileOpen(false)}>
+                Prihlasenie
+              </Link>
+              <Link to="/register" className="btn-primary" onClick={() => setMobileOpen(false)}>
+                Registracia
+              </Link>
+            </>
+          )}
+        </div>
+      </div>
     </header>
   );
 }
+
+
 
 
 

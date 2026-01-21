@@ -75,27 +75,50 @@ router.get("/", authRequired, async (req, res) => {
 // poslať správu
 router.post("/", authRequired, blockBanned, async (req, res) => {
   const { recipientId, content } = req.body;
-  if (!recipientId || !content?.trim()) return res.status(400).json({ message: "Missing recipient or content" });
+  const recipientIdNum = Number(recipientId);
+  const cleanContent = String(content || "").trim();
+  if (!Number.isInteger(recipientIdNum) || recipientIdNum <= 0 || !cleanContent) {
+    return res.status(400).json({ message: "Missing recipient or content" });
+  }
+  if (recipientIdNum === req.user.id) {
+    return res.status(400).json({ message: "Cannot message yourself" });
+  }
   try {
+    const recipientMeta = await query(
+      "SELECT id, username, nickname FROM users WHERE id = $1",
+      [recipientIdNum]
+    );
+    if (recipientMeta.rowCount === 0) {
+      return res.status(404).json({ message: "Recipient not found" });
+    }
+
     const r = await query(
       `
-      INSERT INTO messages (sender_id, recipient_id, content)
-      VALUES ($1, $2, $3)
+      INSERT INTO messages (sender_id, recipient_id, content, is_read, created_at)
+      VALUES ($1, $2, $3, false, NOW())
       RETURNING id, sender_id, recipient_id, content, created_at, is_read
       `,
-      [req.user.id, recipientId, content.trim()]
+      [req.user.id, recipientIdNum, cleanContent]
     );
 
     const senderMeta = await query("SELECT username, nickname FROM users WHERE id = $1", [req.user.id]);
-    const recipientMeta = await query("SELECT username, nickname FROM users WHERE id = $1", [recipientId]);
 
     // notifikácia pre príjemcu
     await query(
       `
       INSERT INTO notifications (user_id, type, payload)
-      VALUES ($1, 'message', jsonb_build_object('from', $2, 'messageId', $3))
+      VALUES ($1, 'message', $2::jsonb)
       `,
-      [recipientId, req.user.id, r.rows[0].id]
+      [
+        recipientIdNum,
+        JSON.stringify({
+          from: req.user.id,
+          messageId: r.rows[0].id,
+          fromUsername: senderMeta.rows[0]?.username,
+          fromNickname: senderMeta.rows[0]?.nickname,
+          snippet: cleanContent.slice(0, 140),
+        }),
+      ]
     );
 
     res.status(201).json({

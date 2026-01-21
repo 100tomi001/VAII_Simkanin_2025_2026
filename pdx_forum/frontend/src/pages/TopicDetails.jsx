@@ -64,6 +64,8 @@ export default function TopicDetail() {
   const [postReactions, setPostReactions] = useState({});
   const [topicReactions, setTopicReactions] = useState({});
   const [isTopicFollowed, setIsTopicFollowed] = useState(false);
+  const [reportedPostIds, setReportedPostIds] = useState(new Set());
+  const [openReactionPicker, setOpenReactionPicker] = useState(null);
 
   useEffect(() => {
     const load = async () => {
@@ -158,6 +160,29 @@ export default function TopicDetail() {
   const showAudit = user?.role === "admin" || user?.role === "moderator";
   const tagNameById = (id) => allTags.find((t) => t.id === id)?.name || `#${id}`;
   const badgeById = (id) => badges.find((b) => b.id === id);
+
+  useEffect(() => {
+    const loadReports = async () => {
+      if (!isModOrAdmin) {
+        setReportedPostIds(new Set());
+        return;
+      }
+      try {
+        const res = await api.get("/reports", { params: { status: "open" } });
+        const ids = new Set();
+        (res.data || []).forEach((r) => {
+          if (Number(r.topic_id) !== topicId) return;
+          if (r.target_post_id) ids.add(Number(r.target_post_id));
+          if (r.context_post_id) ids.add(Number(r.context_post_id));
+        });
+        setReportedPostIds(ids);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
+    loadReports();
+  }, [isModOrAdmin, topicId]);
 
   const toggleTag = (id) => {
     setSelectedTagIds((prev) =>
@@ -599,34 +624,73 @@ export default function TopicDetail() {
     );
   };
 
-  const renderReactionBar = (summaryMap, onToggle) => (
-    <div className="reaction-bar">
-      {reactions.map((r) => {
-        const entry = summaryMap?.[r.id];
-        const count = entry?.cnt || 0;
-        const reacted = !!user && (entry?.users || []).includes(user.id);
-        return (
-          <button
-            key={r.id}
-            type="button"
-            className={`reaction-btn ${reacted ? "active" : ""}`}
-            onClick={() => onToggle(r.id)}
-          >
-            {r.icon ? (
-              isImageIcon(r.icon) ? (
-                <img src={r.icon} alt={r.label} />
-              ) : (
-                <span className="reaction-emoji">{r.icon}</span>
-              )
-            ) : (
-              <span className="reaction-emoji">{(r.label || "+")[0]}</span>
+  const renderReactionButton = (r, summaryMap, onToggle) => {
+    const entry = summaryMap?.[r.id];
+    const count = entry?.cnt || 0;
+    const reacted = !!user && (entry?.users || []).includes(user.id);
+    return (
+      <button
+        key={r.id}
+        type="button"
+        className={`reaction-btn ${reacted ? "active" : ""}`}
+        onClick={() => onToggle(r.id)}
+      >
+        {r.icon ? (
+          isImageIcon(r.icon) ? (
+            <img src={r.icon} alt={r.label} />
+          ) : (
+            <span className="reaction-emoji">{r.icon}</span>
+          )
+        ) : (
+          <span className="reaction-emoji">{(r.label || "+")[0]}</span>
+        )}
+        {count > 0 && <span className="reaction-count">{count}</span>}
+      </button>
+    );
+  };
+
+  const renderReactionBar = (summaryMap, onToggle, pickerKey) => {
+    const likeReaction = reactions.find((r) => r.key === "like");
+    const customReactions = reactions.filter((r) => r.key !== "like");
+    const shown = [];
+    if (likeReaction) shown.push(likeReaction);
+    customReactions.forEach((r) => {
+      const count = summaryMap?.[r.id]?.cnt || 0;
+      if (count > 0) shown.push(r);
+    });
+
+    const isPickerOpen = openReactionPicker === pickerKey;
+
+    return (
+      <div className="reaction-bar">
+        {shown.map((r) => renderReactionButton(r, summaryMap, onToggle))}
+        {customReactions.length > 0 && (
+          <div className="reaction-picker">
+            <button
+              type="button"
+              className="reaction-btn"
+              onClick={() =>
+                setOpenReactionPicker((prev) => (prev === pickerKey ? null : pickerKey))
+              }
+              title="Add reaction"
+            >
+              +
+            </button>
+            {isPickerOpen && (
+              <div className="reaction-picker-menu">
+                {customReactions.map((r) =>
+                  renderReactionButton(r, summaryMap, (rid) => {
+                    onToggle(rid);
+                    setOpenReactionPicker(null);
+                  })
+                )}
+              </div>
             )}
-            {count > 0 && <span className="reaction-count">{count}</span>}
-          </button>
-        );
-      })}
-    </div>
-  );
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const renderPost = (p, depth = 0) => {
     const canDeletePost =
@@ -662,6 +726,7 @@ export default function TopicDetail() {
           </div>
 
           <div
+            className={reportedPostIds.has(p.id) ? "reported-outline" : ""}
             style={{
               flex: 1,
               padding: "10px 12px",
@@ -729,7 +794,11 @@ export default function TopicDetail() {
                   <div style={{ marginBottom: 6 }}>{p.content}</div>
                 )}
 
-                {renderReactionBar(postReactions[p.id], (rid) => togglePostReaction(p.id, rid))}
+                {renderReactionBar(
+                  postReactions[p.id],
+                  (rid) => togglePostReaction(p.id, rid),
+                  `post-${p.id}`
+                )}
 
                 <div style={{ display: "flex", gap: 8 }}>
                   <button
@@ -940,6 +1009,7 @@ export default function TopicDetail() {
                     </div>
 
                     <div
+                      className={reportedPostIds.has(initialPost.id) ? "reported-outline" : ""}
                       style={{
                         flex: 1,
                         padding: "10px 12px",
@@ -954,7 +1024,11 @@ export default function TopicDetail() {
                         </span>
                       </div>
                       <div>{initialPost.content}</div>
-                      {renderReactionBar(topicReactions, (rid) => toggleTopicReaction(rid))}
+                      {renderReactionBar(
+                        topicReactions,
+                        (rid) => toggleTopicReaction(rid),
+                        `topic-${topicId}`
+                      )}
                       <div style={{ display: "flex", gap: 8 }}>
                         <button
                           type="button"
