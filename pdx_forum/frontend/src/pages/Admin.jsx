@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
+import ConfirmModal from "../components/ConfirmModal";
 
 export default function Admin() {
   const { user } = useAuth();
@@ -11,6 +12,7 @@ export default function Admin() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("mods"); // "mods" | "bans"
   const [unbanTarget, setUnbanTarget] = useState(null);
+  const [confirm, setConfirm] = useState(null);
   const PERMS = [
     { key: "can_manage_tags", label: "Tagy" },
     { key: "can_delete_posts", label: "Mazanie" },
@@ -20,6 +22,15 @@ export default function Admin() {
   ];
 
   const isAdmin = user?.role === "admin";
+  const closeConfirm = () => setConfirm(null);
+  const runConfirm = async () => {
+    if (!confirm?.onConfirm) return;
+    try {
+      await confirm.onConfirm();
+    } finally {
+      closeConfirm();
+    }
+  };
 
   const load = async () => {
     try {
@@ -59,10 +70,16 @@ export default function Admin() {
   }
 
   const updateRole = async (id, role) => {
-    const ok = window.confirm(`Zmenit rolu na ${role}?`);
-    if (!ok) return;
-    await api.patch(`/admin/users/${id}/role`, { role });
-    load();
+    setConfirm({
+      title: "Change role?",
+      message: `Change role to ${role}?`,
+      confirmText: "Change",
+      confirmVariant: "primary",
+      onConfirm: async () => {
+        await api.patch(`/admin/users/${id}/role`, { role });
+        load();
+      },
+    });
   };
 
   const togglePerm = (userId, field) => {
@@ -85,22 +102,29 @@ export default function Admin() {
   };
 
   const banUser = async (u) => {
-    const ok = window.confirm(`Zabanovat ${u.username}?`);
-    if (!ok) return;
+    setConfirm({
+      title: "Ban user?",
+      message: `Ban ${u.username}?`,
+      confirmText: "Ban",
+      confirmVariant: "danger",
+      onConfirm: async () => {
+        const days = Number(banDays[u.id] || 0);
+        const until =
+          days > 0
+            ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
+            : null;
 
-    const days = Number(banDays[u.id] || 0);
-    const until =
-      days > 0 ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString() : null;
+        await api.post("/moderation/ban", {
+          userId: u.id,
+          reason: banReason[u.id] || "",
+          bannedUntil: until,
+        });
 
-    await api.post("/moderation/ban", {
-      userId: u.id,
-      reason: banReason[u.id] || "",
-      bannedUntil: until,
+        setBanDays((prev) => ({ ...prev, [u.id]: "" }));
+        setBanReason((prev) => ({ ...prev, [u.id]: "" }));
+        load();
+      },
     });
-
-    setBanDays((prev) => ({ ...prev, [u.id]: "" }));
-    setBanReason((prev) => ({ ...prev, [u.id]: "" }));
-    load();
   };
 
   const unbanUser = (u) => {
@@ -317,6 +341,17 @@ export default function Admin() {
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        open={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message}
+        confirmText={confirm?.confirmText}
+        cancelText="Cancel"
+        confirmVariant={confirm?.confirmVariant}
+        onCancel={closeConfirm}
+        onConfirm={runConfirm}
+      />
     </div>
   );
 }

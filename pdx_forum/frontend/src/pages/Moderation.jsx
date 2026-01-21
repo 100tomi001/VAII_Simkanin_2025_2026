@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
+import ConfirmModal from "../components/ConfirmModal";
 
 const STATUS_OPTIONS = ["all", "open", "reviewed", "closed"];
 
@@ -18,6 +19,16 @@ export default function Moderation() {
   const [wikiChanges, setWikiChanges] = useState([]);
   const [loading, setLoading] = useState(true);
   const [perm, setPerm] = useState(null);
+  const [confirm, setConfirm] = useState(null);
+  const closeConfirm = () => setConfirm(null);
+  const runConfirm = async () => {
+    if (!confirm?.onConfirm) return;
+    try {
+      await confirm.onConfirm();
+    } finally {
+      closeConfirm();
+    }
+  };
 
   const isMod = user?.role === "admin" || user?.role === "moderator";
   const canDeletePosts = user?.role === "admin" || !!perm?.can_delete_posts;
@@ -125,19 +136,26 @@ export default function Moderation() {
 
   const deleteReportedPost = async (postId, reportId) => {
     if (!canDeletePosts) return;
-    if (!window.confirm("Delete this post?")) return;
-    try {
-      await api.delete(`/posts/${postId}`);
-      setReports((prev) =>
-        prev.map((r) =>
-          r.id === reportId ? { ...r, post_deleted: true } : r
-        )
-      );
-      toast.success("Post deleted.");
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to delete post.");
-    }
+    setConfirm({
+      title: "Delete post?",
+      message: "This will remove the post.",
+      confirmText: "Delete",
+      confirmVariant: "danger",
+      onConfirm: async () => {
+        try {
+          await api.delete(`/posts/${postId}`);
+          setReports((prev) =>
+            prev.map((r) =>
+              r.id === reportId ? { ...r, post_deleted: true } : r
+            )
+          );
+          toast.success("Post deleted.");
+        } catch (err) {
+          console.error(err);
+          toast.error("Failed to delete post.");
+        }
+      },
+    });
   };
 
   return (
@@ -370,6 +388,17 @@ export default function Moderation() {
           )
         )}
       </div>
+
+      <ConfirmModal
+        open={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message}
+        confirmText={confirm?.confirmText}
+        cancelText="Cancel"
+        confirmVariant={confirm?.confirmVariant}
+        onCancel={closeConfirm}
+        onConfirm={runConfirm}
+      />
     </div>
   );
 }

@@ -1,8 +1,9 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
+import ConfirmModal from "../components/ConfirmModal";
 
 const TITLE_MIN = 3;
 const TITLE_MAX = 120;
@@ -35,6 +36,16 @@ export default function WikiEditor() {
   const [slugConflict, setSlugConflict] = useState(null);
   const [dragIndex, setDragIndex] = useState(null);
   const [dropIndex, setDropIndex] = useState(null);
+  const [confirm, setConfirm] = useState(null);
+  const closeConfirm = () => setConfirm(null);
+  const runConfirm = async () => {
+    if (!confirm?.onConfirm) return;
+    try {
+      await confirm.onConfirm();
+    } finally {
+      closeConfirm();
+    }
+  };
 
   const isEditor = user && (user.role === "admin" || canEditWiki);
   const titleLen = form.title.trim().length;
@@ -294,16 +305,23 @@ export default function WikiEditor() {
 
   const handleRollback = async (historyId) => {
     if (!id) return;
-    if (!window.confirm("Rollback to this version?")) return;
-    try {
-      await api.post(`/wiki/${id}/rollback/${historyId}`);
-      toast.success("Rolled back.");
-      await loadArticle(id);
-      await loadHistory(id);
-    } catch (err) {
-      console.error(err);
-      toast.error("Rollback failed.");
-    }
+    setConfirm({
+      title: "Rollback?",
+      message: "Rollback to this version?",
+      confirmText: "Rollback",
+      confirmVariant: "danger",
+      onConfirm: async () => {
+        try {
+          await api.post(`/wiki/${id}/rollback/${historyId}`);
+          toast.success("Rolled back.");
+          await loadArticle(id);
+          await loadHistory(id);
+        } catch (err) {
+          console.error(err);
+          toast.error("Rollback failed.");
+        }
+      },
+    });
   };
 
   return (
@@ -808,9 +826,21 @@ export default function WikiEditor() {
           </div>
         )}
       </div>
+      <ConfirmModal
+        open={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message}
+        confirmText={confirm?.confirmText}
+        cancelText="Cancel"
+        confirmVariant={confirm?.confirmVariant}
+        onCancel={closeConfirm}
+        onConfirm={runConfirm}
+      />
     </div>
   );
 }
+
+
 
 
 

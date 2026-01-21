@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
+import ConfirmModal from "../components/ConfirmModal";
 
 export default function ManageMeta() {
   const { user } = useAuth();
@@ -29,6 +30,7 @@ export default function ManageMeta() {
   const [error, setError] = useState("");
   const [badgeUploading, setBadgeUploading] = useState(false);
   const [tagAudit, setTagAudit] = useState([]);
+  const [confirm, setConfirm] = useState(null);
 
   const isEditor = user && (user.role === "admin" || user.role === "moderator");
   const cleanNewTag = newTag.trim();
@@ -39,6 +41,15 @@ export default function ManageMeta() {
   const cleanCategoryName = newCategory.name.trim();
   const canAddCategory =
     cleanCategoryName.length >= 2 && cleanCategoryName.length <= CAT_NAME_MAX;
+  const closeConfirm = () => setConfirm(null);
+  const runConfirm = async () => {
+    if (!confirm?.onConfirm) return;
+    try {
+      await confirm.onConfirm();
+    } finally {
+      closeConfirm();
+    }
+  };
 
   const loadTagAudit = async () => {
     setAuditLoading(true);
@@ -100,18 +111,25 @@ export default function ManageMeta() {
   };
 
   const deleteTag = async (id) => {
-    if (!window.confirm("Zmazat tag?")) return;
-    try {
-      await api.delete(`/tags/${id}`);
-      setTags((prev) => prev.filter((t) => t.id !== id));
-      setError("");
-      toast.success("Tag zmazany.");
-      loadTagAudit();
-    } catch (err) {
-      console.error(err);
-      setError(err.response?.data?.message || "Chyba pri mazani tagu.");
-      toast.error("Nepodarilo sa zmazat tag.");
-    }
+    setConfirm({
+      title: "Delete tag?",
+      message: "This will remove the tag.",
+      confirmText: "Delete",
+      confirmVariant: "danger",
+      onConfirm: async () => {
+        try {
+          await api.delete(`/tags/${id}`);
+          setTags((prev) => prev.filter((t) => t.id !== id));
+          setError("");
+          toast.success("Tag zmazany.");
+          loadTagAudit();
+        } catch (err) {
+          console.error(err);
+          setError(err.response?.data?.message || "Chyba pri mazani tagu.");
+          toast.error("Nepodarilo sa zmazat tag.");
+        }
+      },
+    });
   };
 
   const addBadge = async () => {
@@ -142,17 +160,24 @@ export default function ManageMeta() {
   };
 
   const deleteBadge = async (id) => {
-    if (!window.confirm("Zmazat badge?")) return;
-    try {
-      await api.delete(`/badges/${id}`);
-      setBadges((prev) => prev.filter((b) => b.id !== id));
-      setError("");
-      toast.success("Badge zmazany.");
-    } catch (err) {
-      console.error(err);
-      setError(err.response?.data?.message || "Chyba pri mazani badge.");
-      toast.error("Nepodarilo sa zmazat badge.");
-    }
+    setConfirm({
+      title: "Delete badge?",
+      message: "This will remove the badge.",
+      confirmText: "Delete",
+      confirmVariant: "danger",
+      onConfirm: async () => {
+        try {
+          await api.delete(`/badges/${id}`);
+          setBadges((prev) => prev.filter((b) => b.id !== id));
+          setError("");
+          toast.success("Badge zmazany.");
+        } catch (err) {
+          console.error(err);
+          setError(err.response?.data?.message || "Chyba pri mazani badge.");
+          toast.error("Nepodarilo sa zmazat badge.");
+        }
+      },
+    });
   };
 
   const uploadBadgeFile = async (file) => {
@@ -294,17 +319,24 @@ export default function ManageMeta() {
   };
 
   const deleteCategory = async (id) => {
-    if (!window.confirm("Zmazat kategoriu?")) return;
-    try {
-      await api.delete(`/categories/${id}`);
-      setCategories((prev) => prev.filter((c) => c.id !== id));
-      setError("");
-      toast.success("Kategoria zmazana.");
-    } catch (err) {
-      console.error(err);
-      setError(err.response?.data?.message || "Chyba pri mazani kategorie.");
-      toast.error("Nepodarilo sa zmazat kategoriu.");
-    }
+    setConfirm({
+      title: "Delete category?",
+      message: "This will remove the category.",
+      confirmText: "Delete",
+      confirmVariant: "danger",
+      onConfirm: async () => {
+        try {
+          await api.delete(`/categories/${id}`);
+          setCategories((prev) => prev.filter((c) => c.id !== id));
+          setError("");
+          toast.success("Kategoria zmazana.");
+        } catch (err) {
+          console.error(err);
+          setError(err.response?.data?.message || "Chyba pri mazani kategorie.");
+          toast.error("Nepodarilo sa zmazat kategoriu.");
+        }
+      },
+    });
   };
 
   if (!isEditor) {
@@ -672,6 +704,17 @@ export default function ManageMeta() {
           )}
         </div>
       )}
+
+      <ConfirmModal
+        open={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message}
+        confirmText={confirm?.confirmText}
+        cancelText="Cancel"
+        confirmVariant={confirm?.confirmVariant}
+        onCancel={closeConfirm}
+        onConfirm={runConfirm}
+      />
     </div>
   );
 }

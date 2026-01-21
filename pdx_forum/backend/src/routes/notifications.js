@@ -29,10 +29,20 @@ router.get("/", authRequired, async (req, res) => {
 router.post("/mark-read", authRequired, async (req, res) => {
   const { ids = [] } = req.body;
   try {
-    if (ids.length > 0) {
+    const rawIds = Array.isArray(ids) ? ids : [];
+    const cleanIds = rawIds
+      .map((id) => Number(id))
+      .filter((id) => Number.isInteger(id) && id > 0);
+    if (rawIds.length > 0 && cleanIds.length === 0) {
+      return res.status(400).json({ message: "Invalid ids" });
+    }
+    if (cleanIds.length > 200) {
+      return res.status(400).json({ message: "Too many ids" });
+    }
+    if (cleanIds.length > 0) {
       await query(
         `UPDATE notifications SET is_read = true WHERE user_id = $1 AND id = ANY($2::int[])`,
-        [req.user.id, ids]
+        [req.user.id, cleanIds]
       );
     }
     res.json({ message: "Marked read" });

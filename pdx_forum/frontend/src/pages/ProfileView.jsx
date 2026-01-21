@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
+import ConfirmModal from "../components/ConfirmModal";
 
 const TABS = [
   { key: "posts", label: "Profile posts" },
@@ -29,6 +30,16 @@ export default function ProfileView() {
   const [modMinutes, setModMinutes] = useState("");
   const [modDays, setModDays] = useState("");
   const [modMessage, setModMessage] = useState("");
+  const [confirm, setConfirm] = useState(null);
+  const closeConfirm = () => setConfirm(null);
+  const runConfirm = async () => {
+    if (!confirm?.onConfirm) return;
+    try {
+      await confirm.onConfirm();
+    } finally {
+      closeConfirm();
+    }
+  };
 
   const isOwnProfile = !id || id === String(user?.id);
   const isAdmin = user?.role === "admin";
@@ -105,30 +116,40 @@ export default function ProfileView() {
 
   const makeModerator = async () => {
     if (!profile) return;
-    const ok = window.confirm(`Make ${profile.username} moderator?`);
-    if (!ok) return;
-
-    try {
-      await api.patch(`/admin/users/${profile.id}/role`, { role: "moderator" });
-      const res = await api.get(`/profile/${id || "me"}`);
-      setProfile(res.data);
-    } catch (err) {
-      console.error(err);
-    }
+    setConfirm({
+      title: "Make moderator?",
+      message: `Make ${profile.username} moderator?`,
+      confirmText: "Confirm",
+      confirmVariant: "primary",
+      onConfirm: async () => {
+        try {
+          await api.patch(`/admin/users/${profile.id}/role`, { role: "moderator" });
+          const res = await api.get(`/profile/${id || "me"}`);
+          setProfile(res.data);
+        } catch (err) {
+          console.error(err);
+        }
+      },
+    });
   };
 
   const removeModerator = async () => {
     if (!profile) return;
-    const ok = window.confirm(`Remove moderator ${profile.username}?`);
-    if (!ok) return;
-
-    try {
-      await api.patch(`/admin/users/${profile.id}/role`, { role: "user" });
-      const res = await api.get(`/profile/${id || "me"}`);
-      setProfile(res.data);
-    } catch (err) {
-      console.error(err);
-    }
+    setConfirm({
+      title: "Remove moderator?",
+      message: `Remove moderator ${profile.username}?`,
+      confirmText: "Remove",
+      confirmVariant: "danger",
+      onConfirm: async () => {
+        try {
+          await api.patch(`/admin/users/${profile.id}/role`, { role: "user" });
+          const res = await api.get(`/profile/${id || "me"}`);
+          setProfile(res.data);
+        } catch (err) {
+          console.error(err);
+        }
+      },
+    });
   };
 
   const toggleFollow = async () => {
@@ -492,6 +513,17 @@ export default function ProfileView() {
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        open={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message}
+        confirmText={confirm?.confirmText}
+        cancelText="Cancel"
+        confirmVariant={confirm?.confirmVariant}
+        onCancel={closeConfirm}
+        onConfirm={runConfirm}
+      />
     </div>
   );
 }

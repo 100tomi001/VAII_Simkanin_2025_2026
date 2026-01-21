@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
+import helmet from "helmet";
 
 import authRoutes from "./routes/auth.js";
 import topicRoutes from "./routes/topics.js";
@@ -24,6 +25,12 @@ import reportRoutes from "./routes/reports.js";
 import { query } from "./db.js";
 
 const app = express();
+
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  })
+);
 
 const rawOrigins = process.env.CORS_ORIGIN || "http://localhost:3000";
 const allowedOrigins = rawOrigins

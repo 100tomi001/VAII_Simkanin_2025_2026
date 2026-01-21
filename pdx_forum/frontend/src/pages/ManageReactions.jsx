@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
+import ConfirmModal from "../components/ConfirmModal";
 
 const slugify = (text) =>
   String(text || "")
@@ -21,6 +22,16 @@ export default function ManageReactions() {
   const [canManage, setCanManage] = useState(false);
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [confirm, setConfirm] = useState(null);
+  const closeConfirm = () => setConfirm(null);
+  const runConfirm = async () => {
+    if (!confirm?.onConfirm) return;
+    try {
+      await confirm.onConfirm();
+    } finally {
+      closeConfirm();
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -73,17 +84,24 @@ export default function ManageReactions() {
       setError("Like reaction cannot be deleted.");
       return;
     }
-    if (!window.confirm("Delete reaction?")) return;
-    try {
-      await api.delete(`/reactions/${r.id}`);
-      setReactions((prev) => prev.filter((x) => x.id !== r.id));
-      setError("");
-      toast.success("Reaction deleted.");
-    } catch (err) {
-      console.error(err);
-      setError(err.response?.data?.message || "Failed to delete reaction.");
-      toast.error("Failed to delete reaction.");
-    }
+    setConfirm({
+      title: "Delete reaction?",
+      message: `Delete reaction "${r.label}"?`,
+      confirmText: "Delete",
+      confirmVariant: "danger",
+      onConfirm: async () => {
+        try {
+          await api.delete(`/reactions/${r.id}`);
+          setReactions((prev) => prev.filter((x) => x.id !== r.id));
+          setError("");
+          toast.success("Reaction deleted.");
+        } catch (err) {
+          console.error(err);
+          setError(err.response?.data?.message || "Failed to delete reaction.");
+          toast.error("Failed to delete reaction.");
+        }
+      },
+    });
   };
 
   const uploadReactionFile = async (file) => {
@@ -192,6 +210,17 @@ export default function ManageReactions() {
           {reactions.length === 0 && <p className="topic-meta">No reactions.</p>}
         </div>
       </div>
+
+      <ConfirmModal
+        open={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message}
+        confirmText={confirm?.confirmText}
+        cancelText="Cancel"
+        confirmVariant={confirm?.confirmVariant}
+        onCancel={closeConfirm}
+        onConfirm={runConfirm}
+      />
     </div>
   );
 }

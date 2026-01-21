@@ -161,15 +161,15 @@ router.post("/:topicId", authRequired, blockBanned, async (req, res) => {
         SELECT tf.user_id,
                'followed_topic_post',
                jsonb_build_object(
-                 'topicId', $1,
-                 'topicTitle', $2,
-                 'postId', $3,
-                 'authorId', $4,
-                 'authorNickname', $5,
-                 'snippet', $6
+                 'topicId', $1::int,
+                 'topicTitle', $2::text,
+                 'postId', $3::int,
+                 'authorId', $4::int,
+                 'authorNickname', $5::text,
+                 'snippet', $6::text
                )
         FROM topic_follows tf
-        WHERE tf.topic_id = $1 AND tf.user_id <> $4
+        WHERE tf.topic_id = $1::int AND tf.user_id <> $4::int
         `,
         [
           topicId,
@@ -192,15 +192,15 @@ router.post("/:topicId", authRequired, blockBanned, async (req, res) => {
         SELECT uf.follower_id,
                'followed_user_post',
                jsonb_build_object(
-                 'topicId', $1,
-                 'topicTitle', $2,
-                 'postId', $3,
-                 'authorId', $4,
-                 'authorNickname', $5,
-                 'snippet', $6
+                 'topicId', $1::int,
+                 'topicTitle', $2::text,
+                 'postId', $3::int,
+                 'authorId', $4::int,
+                 'authorNickname', $5::text,
+                 'snippet', $6::text
                )
         FROM user_follows uf
-        WHERE uf.followed_id = $4 AND uf.follower_id <> $4
+        WHERE uf.followed_id = $4::int AND uf.follower_id <> $4::int
         `,
         [
           topicId,

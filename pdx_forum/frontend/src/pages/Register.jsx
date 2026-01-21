@@ -8,15 +8,42 @@ export default function Register() {
   const [password, setP] = useState("");
   const [error, setError] = useState("");
   const navigate = useNavigate();
+  const cleanUsername = username.trim();
+  const cleanEmail = email.trim();
+  const passwordValue = password;
+  const usernameError =
+    cleanUsername.length > 0 &&
+    (cleanUsername.length < 3 ||
+      cleanUsername.length > 30 ||
+      /\s/.test(cleanUsername));
+  const emailError =
+    cleanEmail.length > 0 &&
+    (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail) || cleanEmail.length > 254);
+  const passwordError =
+    passwordValue.length > 0 &&
+    (!/^(?=.*[A-Za-z])(?=.*\d).{8,72}$/.test(passwordValue));
+  const formError =
+    usernameError
+      ? "Username must be 3-30 chars, no spaces."
+      : emailError
+      ? "Email is invalid."
+      : passwordError
+      ? "Password must be 8-72 chars and include a letter and a number."
+      : "";
+  const canSubmit = !usernameError && !emailError && !passwordError;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    if (!canSubmit) {
+      setError(formError || "Invalid input.");
+      return;
+    }
 
     try {
       await api.post("/auth/register", {
-        username,
-        email,
+        username: cleanUsername,
+        email: cleanEmail,
         password,
       });
 
@@ -50,11 +77,15 @@ export default function Register() {
             value={password}
             onChange={(e) => setP(e.target.value)}
           />
-          <button type="submit" className="btn-primary">
+          <button type="submit" className="btn-primary" disabled={!canSubmit}>
             Vytvoriť účet
           </button>
         </form>
-        {error && <p style={{ color: "salmon", marginTop: 8 }}>{error}</p>}
+        {(error || formError) && (
+          <p style={{ color: "salmon", marginTop: 8 }}>
+            {error || formError}
+          </p>
+        )}
 
         <p style={{ marginTop: 14, fontSize: "0.9rem", color: "#9ca3af" }}>
           Už máš účet?{" "}
@@ -66,3 +97,5 @@ export default function Register() {
     </div>
   );
 }
+
+
